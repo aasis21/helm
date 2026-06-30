@@ -68,7 +68,7 @@ shell vars win).
 
 **2. Get the app on your phone** — pick one:
 
-- **Hosted web app (easiest, zero install):** open **<https://helm-copilot.netlify.app>**
+- **Hosted web app (easiest, zero install):** open **<https://usehelm.netlify.app>**
   on your phone. On Android Chrome it scans the QR with your camera directly in the browser
   (via the `BarcodeDetector` API); on iOS Safari / Firefox it uses an on-page jsQR fallback,
   and if the camera is unavailable you can paste the JSON payload. Served over HTTPS with a
@@ -79,7 +79,7 @@ shell vars win).
 - **Local dev server:** `cd mobile && npm run dev -- --host`, open the printed LAN URL on
   your phone (same in-browser camera scan + paste fallback as the hosted app).
 
-> The hosted site is a static deploy of `mobile/dist` on Netlify (site `helm-copilot`,
+> The hosted site is a static deploy of `mobile/dist` on Netlify (site `usehelm`,
 > team `aasis21`). It points at the same public relay as everything else; the embedded
 > publishable key is client-safe and the channel is guarded by RLS + end-to-end AES-256-GCM.
 > Redeploy after a change with `npm run build -w @aasis21/helm-mobile` then a Netlify deploy
