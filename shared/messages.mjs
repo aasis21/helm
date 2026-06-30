@@ -40,6 +40,8 @@ export const KIND = Object.freeze({
   SESSION_END: "control.session_end",
   HEARTBEAT: "control.heartbeat",
   MODE: "control.mode",
+  // interrupt (phone -> ext): stop/cancel the in-flight generation or tool run.
+  INTERRUPT: "control.interrupt",
   // history backfill (phone <-> ext): the phone pulls older turns it never saw
   // (first join, or scrollback) from the CLI session store.
   HISTORY_REQUEST: "control.history_request",
@@ -150,6 +152,11 @@ export const sessionEnd = (reason) => ({
 });
 export const heartbeat = () => ({ kind: KIND.HEARTBEAT, ts: now() });
 export const modeChange = (mode) => ({ kind: KIND.MODE, mode, ts: now() });
+/**
+ * Phone -> ext request to stop the current turn. The extension calls the SDK's
+ * interrupt/cancel path; safe to send even when nothing is running (best-effort).
+ */
+export const interrupt = () => ({ kind: KIND.INTERRUPT, ts: now() });
 
 // ---- factories (history backfill) ------------------------------------------
 /**
@@ -197,6 +204,7 @@ export function eventForKind(kind) {
     case KIND.SESSION_END:
     case KIND.HEARTBEAT:
     case KIND.MODE:
+    case KIND.INTERRUPT:
     case KIND.HISTORY_REQUEST:
     case KIND.HISTORY:
       return EVENTS.CONTROL;

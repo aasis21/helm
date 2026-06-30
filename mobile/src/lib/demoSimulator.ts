@@ -55,6 +55,8 @@ export async function startDemoSession(): Promise<DemoSession> {
   await extension.connect();
 
   const timers: number[] = [];
+  // Tracks which scripted tool is mid-run so a phone "interrupt" can end the right card.
+  let runningToolId: string | null = null;
   const push = (delay: number, action: () => void | Promise<void>): void => {
     timers.push(window.setTimeout(() => void action(), delay));
   };
@@ -75,6 +77,16 @@ export async function startDemoSession(): Promise<DemoSession> {
       if (control.kind === 'control.mode') {
         void extension.send(modeChange(control.mode));
         void extension.send(logLine('info', `Session mode changed to ${control.mode}`));
+        return;
+      }
+      if ((message as { kind?: string }).kind === 'control.interrupt') {
+        // Make the phone's Stop button visibly take effect: end the running tool + ack.
+        if (runningToolId) {
+          const name = runningToolId === 'tool-1' ? 'powershell' : 'view';
+          void extension.send(toolComplete(runningToolId, name, false, '■ interrupted by user'));
+          runningToolId = null;
+        }
+        void extension.send(logLine('warning', '■ Generation stopped by user (interrupt relayed).'));
       }
     }),
   ];
@@ -91,7 +103,7 @@ export async function startDemoSession(): Promise<DemoSession> {
           {
             turnIndex: 0,
             role: 'assistant',
-            text: 'Helm mirrors your live `gh copilot` terminal session to your phone over an E2E-encrypted relay.',
+            text: 'Helm mirrors your live `copilot` terminal session to your phone over an E2E-encrypted relay.',
             ts: Date.now() - 599_000,
           },
         ],
@@ -104,20 +116,25 @@ export async function startDemoSession(): Promise<DemoSession> {
   push(900, () =>
     extension.send(
       assistantMessage(
-        "Hi — I'm your live `gh copilot` session, mirrored to your phone. Let me check the mobile build.",
+        "Hi — I'm your live `copilot` session, mirrored to your phone. Let me check the mobile build.",
         'demo-1',
       ),
     ),
   );
-  push(1_700, () => extension.send(toolStart('tool-1', 'powershell', { command: 'npm run build -w @aasis21/helm-mobile' })));
+  push(1_700, () => {
+    runningToolId = 'tool-1';
+    void extension.send(toolStart('tool-1', 'powershell', { command: 'npm run build -w @aasis21/helm-mobile' }));
+  });
   // A prompt typed at the LAPTOP terminal (origin 'terminal'), relayed so the phone's
   // transcript isn't missing the user side of terminal-driven turns. Shows a "Laptop" chip.
   push(2_400, () =>
     extension.send(userMessage('Did that build pass on the laptop?', 'terminal', 'demo-terminal-1')),
   );
-  push(3_400, () =>
-    extension.send(toolComplete('tool-1', 'powershell', true, 'vite build ✓  104 modules transformed · dist/ ready in 1.21s')),
-  );
+  push(3_400, () => {
+    if (runningToolId !== 'tool-1') return; // user already interrupted it
+    runningToolId = null;
+    void extension.send(toolComplete('tool-1', 'powershell', true, 'vite build ✓  104 modules transformed · dist/ ready in 1.21s'));
+  });
   push(3_900, () =>
     extension.send(
       assistantMessage(
@@ -126,11 +143,18 @@ export async function startDemoSession(): Promise<DemoSession> {
       ),
     ),
   );
-  push(5_400, () => extension.send(toolStart('tool-2', 'view', { path: 'mobile/src/App.tsx' })));
-  push(6_600, () => extension.send(toolComplete('tool-2', 'view', true, 'read 204 lines')));
+  push(5_400, () => {
+    runningToolId = 'tool-2';
+    void extension.send(toolStart('tool-2', 'view', { path: 'mobile/src/App.tsx' }));
+  });
+  push(6_600, () => {
+    if (runningToolId !== 'tool-2') return; // user already interrupted it
+    runningToolId = null;
+    void extension.send(toolComplete('tool-2', 'view', true, 'read 204 lines'));
+  });
   push(7_200, () =>
     extension.send(
-      approvalRequest('approval-1', 'powershell', { command: 'gh copilot suggest "fix failing test"' }, [
+      approvalRequest('approval-1', 'powershell', { command: 'npm test' }, [
         { id: 'allow-once', label: 'Allow once' },
         { id: 'allow-always', label: 'Always allow this session' },
         { id: 'deny', label: 'Deny' },

@@ -96,9 +96,8 @@ export function createPermissionRelay({
           { level: "warning", ephemeral: false },
         );
         resolve({
-          kind: "denied-by-permission-request-hook",
-          message: "Helm approval timed out",
-          interrupt: false,
+          kind: "reject",
+          feedback: "Helm approval timed out",
         });
       }, approvalTimeoutMs);
 
@@ -111,9 +110,8 @@ export function createPermissionRelay({
     for (const [requestId, entry] of pending) {
       clearTimeout(entry.timer);
       entry.resolve({
-        kind: "denied-by-permission-request-hook",
-        message: "Helm relay stopped before approval decision",
-        interrupt: false,
+        kind: "reject",
+        feedback: "Helm relay stopped before approval decision",
       });
       pending.delete(requestId);
     }
@@ -200,6 +198,10 @@ export async function attachRelay({
     channel.onEvent(EVENTS.CONTROL, (msg) => {
       if (msg?.kind === KIND.MODE) {
         void applyMode(session, msg.mode, logger, sendSafe);
+        return;
+      }
+      if (msg?.kind === KIND.INTERRUPT) {
+        void applyInterrupt(session, logger, sendSafe);
         return;
       }
       if (msg?.kind === KIND.HISTORY_REQUEST) {
@@ -319,6 +321,36 @@ async function applyMode(session, mode, logger, sendSafe) {
   }
 }
 
+// A phone "Stop" maps to the SDK's turn-abort RPC. We probe session.rpc.abort the same
+// way applyMode probes session.rpc.mode.set, and surface a notice so the phone gets
+// immediate feedback even when the abort emits no further session events.
+async function applyInterrupt(session, logger, sendSafe) {
+  if (typeof session.rpc?.abort !== "function") {
+    logger("Helm: interrupt requested but session.rpc.abort is unavailable.", {
+      level: "warning",
+      ephemeral: false,
+    });
+    return;
+  }
+  try {
+    const result = await session.rpc.abort({ reason: "remote_command" });
+    if (result && result.success === false) {
+      logger(`Helm: interrupt failed: ${result.error ?? "unknown error"}.`, {
+        level: "warning",
+        ephemeral: false,
+      });
+      return;
+    }
+    logger("Helm: generation interrupted from phone.", { level: "info", ephemeral: false });
+    await sendSafe(logLine("warning", "■ Generation stopped from your phone."));
+  } catch (err) {
+    logger(`Helm: interrupt threw: ${err?.message ?? err}`, {
+      level: "warning",
+      ephemeral: false,
+    });
+  }
+}
+
 function inferToolName(request = {}) {
   return (
     request.toolName ??
@@ -342,15 +374,31 @@ function inferOptions(request = {}) {
   ];
 }
 
+// The Copilot CLI native runtime (>= 1.0.66) requires a permission-request hook to
+// resolve to one of these kebab-case decision kinds. The older SDK-style kinds
+// ("approved" / "denied-interactively-by-user" / "denied-by-permission-request-hook")
+// are rejected by the runtime with: unknown variant `approved`, expected one of
+// `approve-once`, `approve-for-session`, `reject`, `user-not-available`.
+const NATIVE_DECISION_KINDS = new Set([
+  "approve-once",
+  "approve-for-session",
+  "reject",
+  "user-not-available",
+]);
+
 function permissionResultFromDecision(msg) {
-  if (msg.raw && typeof msg.raw === "object" && typeof msg.raw.kind === "string") {
+  // Forward-compat: honor an exact native decision a future phone may send in `raw`.
+  if (msg.raw && typeof msg.raw === "object" && NATIVE_DECISION_KINDS.has(msg.raw.kind)) {
     return msg.raw;
   }
-  if (msg.optionId === "approved" || msg.optionId === "allow" || msg.optionId === "approve") {
-    return { kind: "approved" };
-  }
+  const approved =
+    msg.optionId === "approve-once" ||
+    msg.optionId === "approved" ||
+    msg.optionId === "allow" ||
+    msg.optionId === "approve";
+  if (approved) return { kind: "approve-once" };
   return {
-    kind: "denied-interactively-by-user",
+    kind: "reject",
     feedback: msg.raw?.feedback ?? "Denied from Helm mobile",
   };
 }

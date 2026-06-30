@@ -194,7 +194,7 @@ async function main() {
   await waitFor(() => seen.sessionEnd);
   await phoneChannel.close();
 
-  assert.equal(permission.kind, "approved");
+  assert.equal(permission.kind, "approve-once");
   assert.deepEqual(seen, {
     sessionStart: true,
     assistant: true,

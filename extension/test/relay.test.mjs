@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { EVENTS, KIND } from "@aasis21/helm-shared";
-import { attachRelay, createPromptOriginTracker } from "../src/relay.mjs";
+import { attachRelay, createPermissionRelay, createPromptOriginTracker } from "../src/relay.mjs";
 
 const flush = () => new Promise((r) => setTimeout(r, 15));
 
@@ -36,10 +36,18 @@ function makeFakeChannel() {
 function makeFakeSession(sessionId = "unknown-session") {
   let handler = null;
   const prompts = [];
+  const abortCalls = [];
   return {
     sessionId,
     cwd: "/repo",
     prompts,
+    abortCalls,
+    rpc: {
+      async abort(params) {
+        abortCalls.push(params);
+        return { success: true };
+      },
+    },
     on(fn) {
       handler = fn;
       return () => {
@@ -159,4 +167,73 @@ test("answers a HISTORY_REQUEST with a control.history message", async () => {
     assert.equal(hist.nextCursor, null);
     assert.equal(hist.hasMore, false);
   });
+});
+
+test("relays a control.interrupt to the SDK turn-abort and notifies the phone", async () => {
+  await withRelay(async ({ channel, session }) => {
+    channel.emit(EVENTS.CONTROL, { kind: KIND.INTERRUPT });
+    await flush();
+    assert.deepEqual(session.abortCalls, [{ reason: "remote_command" }]);
+    const notice = channel.sent.find(
+      (m) => m.kind === KIND.LOG && /stopped from your phone/i.test(m.message ?? "")
+    );
+    assert.ok(notice, "expected a stop notice to be relayed to the phone");
+  });
+});
+
+// ---- permission decisions → native CLI decision kinds ----------------------
+// The Copilot CLI native runtime (>= 1.0.66) only accepts the kebab-case decision
+// kinds approve-once / approve-for-session / reject / user-not-available; returning
+// the older "approved" / "denied-*" kinds throws "permission host returned malformed
+// payload: unknown variant `approved`". These lock the phone decision → native mapping.
+
+async function decideWith(optionId, raw) {
+  const channel = makeFakeChannel();
+  const relay = createPermissionRelay({ channel });
+  try {
+    const pending = relay.onPermissionRequest({ kind: "shell", toolName: "powershell" });
+    await flush();
+    const req = channel.sent.find((m) => m.kind === KIND.APPROVAL_REQUEST);
+    assert.ok(req, "expected an approval request to be sent to the phone");
+    channel.emit(EVENTS.DECISION, {
+      kind: KIND.APPROVAL_DECISION,
+      requestId: req.requestId,
+      optionId,
+      raw,
+    });
+    return await pending;
+  } finally {
+    relay.close();
+  }
+}
+
+test("an approve decision resolves to the native approve-once kind", async () => {
+  assert.deepEqual(await decideWith("approved"), { kind: "approve-once" });
+});
+
+test("a deny decision resolves to the native reject kind with feedback", async () => {
+  const result = await decideWith("denied-interactively-by-user");
+  assert.equal(result.kind, "reject");
+  assert.equal(typeof result.feedback, "string");
+});
+
+test("an exact native decision in raw is passed through, unknown raw kinds are not", async () => {
+  assert.deepEqual(await decideWith("whatever", { kind: "approve-for-session", approval: {} }), {
+    kind: "approve-for-session",
+    approval: {},
+  });
+  // A stale/unknown raw kind must never leak to the runtime — it falls back to reject.
+  const result = await decideWith("nope", { kind: "approved" });
+  assert.equal(result.kind, "reject");
+});
+
+test("a permission timeout fails closed with the native reject kind", async () => {
+  const channel = makeFakeChannel();
+  const relay = createPermissionRelay({ channel, approvalTimeoutMs: 5 });
+  try {
+    const result = await relay.onPermissionRequest({ kind: "shell", toolName: "powershell" });
+    assert.equal(result.kind, "reject");
+  } finally {
+    relay.close();
+  }
 });

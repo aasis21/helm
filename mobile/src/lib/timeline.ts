@@ -60,6 +60,9 @@ export type TimelineItem = UserItem | AssistantItem | ToolItem | NoticeItem;
 export interface TimelineState {
   items: TimelineItem[];
   approvals: ApprovalRequest[];
+  /** Transient per-request decision-send error (requestId -> message). Drives a retry
+   *  affordance when a decision couldn't be relayed; reset on reconnect, never persisted. */
+  approvalErrors: Record<string, string>;
   mode: SessionMode;
   cwd: string | null;
   /** CLI chat summary ("title"); null until the extension reports one. */
@@ -85,6 +88,7 @@ export function emptyTimeline(): TimelineState {
   return {
     items: [],
     approvals: [],
+    approvalErrors: {},
     mode: DEFAULT_MODE,
     cwd: null,
     title: null,
@@ -135,14 +139,14 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
       return appendUserEcho(state, message as UserMessageEcho);
     case KIND.HISTORY:
       return mergeHistoryPage(state, message as HistoryMessage);
-    case KIND.APPROVAL_REQUEST:
+    case KIND.APPROVAL_REQUEST: {
+      const req = message as ApprovalRequest;
       return {
         ...state,
-        approvals: [
-          ...state.approvals.filter((a) => a.requestId !== (message as ApprovalRequest).requestId),
-          message as ApprovalRequest,
-        ],
+        approvals: [...state.approvals.filter((a) => a.requestId !== req.requestId), req],
+        approvalErrors: omitKey(state.approvalErrors, req.requestId),
       };
+    }
     case KIND.SESSION_START:
       return {
         ...state,
@@ -179,8 +183,39 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
   }
 }
 
+/** Return a copy of `map` without `key` (or `map` itself when the key is absent). */
+function omitKey(map: Record<string, string>, key: string): Record<string, string> {
+  if (!(key in map)) return map;
+  const next = { ...map };
+  delete next[key];
+  return next;
+}
+
 export function dismissApproval(state: TimelineState, requestId: string): TimelineState {
-  return { ...state, approvals: state.approvals.filter((a) => a.requestId !== requestId) };
+  return {
+    ...state,
+    approvals: state.approvals.filter((a) => a.requestId !== requestId),
+    approvalErrors: omitKey(state.approvalErrors, requestId),
+  };
+}
+
+/**
+ * Re-add a previously dismissed approval (e.g. its decision failed to send) and record a
+ * transient error so the banner can resurface with a retry. Pure; de-dupes by requestId.
+ */
+export function restoreApproval(
+  state: TimelineState,
+  req: ApprovalRequest,
+  message: string,
+): TimelineState {
+  const approvals = state.approvals.some((a) => a.requestId === req.requestId)
+    ? state.approvals
+    : [...state.approvals, req];
+  return {
+    ...state,
+    approvals,
+    approvalErrors: { ...state.approvalErrors, [req.requestId]: message },
+  };
 }
 
 function upsertAssistant(state: TimelineState, message: AssistantMessage): TimelineState {

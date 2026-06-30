@@ -5,9 +5,11 @@ import type { SessionMode } from '@aasis21/helm-shared';
 
 interface ComposerProps {
   disabled: boolean;
+  busy: boolean;
   mode: SessionMode;
   cwd: string | null;
   onPrompt(text: string): Promise<void> | void;
+  onInterrupt(): void;
   onModeChange(mode: SessionMode): Promise<void> | void;
 }
 
@@ -23,7 +25,7 @@ function basename(path: string | null): string | null {
   return parts[parts.length - 1] || path;
 }
 
-export function Composer({ disabled, mode, cwd, onPrompt, onModeChange }: ComposerProps): JSX.Element {
+export function Composer({ disabled, busy, mode, cwd, onPrompt, onInterrupt, onModeChange }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -109,11 +111,25 @@ export function Composer({ disabled, mode, cwd, onPrompt, onModeChange }: Compos
           onChange={(event) => setText(event.target.value)}
           placeholder={disabled ? 'Session ended — re-pair to continue.' : 'Message your Copilot session…'}
         />
-        <button className="send-btn" type="submit" disabled={disabled || !text.trim()} aria-label="Send">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path fill="currentColor" d="M4 12l15-7-7 15-2-6-6-2z" />
-          </svg>
-        </button>
+        {busy ? (
+          <button
+            className="stop-btn"
+            type="button"
+            onClick={onInterrupt}
+            aria-label="Stop generating"
+            title="Stop generating"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
+            </svg>
+          </button>
+        ) : (
+          <button className="send-btn" type="submit" disabled={disabled || !text.trim()} aria-label="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M4 12l15-7-7 15-2-6-6-2z" />
+            </svg>
+          </button>
+        )}
       </div>
     </form>
   );

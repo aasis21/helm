@@ -1,4 +1,4 @@
-import { KIND, approvalDecision, historyRequest, modeChange, prompt, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
+import { KIND, approvalDecision, historyRequest, interrupt, modeChange, prompt, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
 import type { InnerMessage, SessionMode } from '@aasis21/helm-shared';
 import { connectSession, pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
@@ -8,6 +8,7 @@ import {
   emptyTimeline,
   markHistoryLoading,
   reduceTimeline,
+  restoreApproval,
   restoreTimeline,
   toPersisted,
 } from './timeline';
@@ -400,9 +401,34 @@ class SessionManager {
   async sendApproval(channelId: string, requestId: string, optionId: string): Promise<void> {
     const runtime = this.runtimes.get(channelId);
     if (!runtime) return;
+    const pending = runtime.timeline.approvals.find((a) => a.requestId === requestId);
     runtime.timeline = dismissApproval(runtime.timeline, requestId);
     this.emit();
-    await runtime.client?.send(approvalDecision(requestId, optionId));
+    try {
+      await runtime.client?.send(approvalDecision(requestId, optionId));
+    } catch (err) {
+      // The decision never reached the laptop: restore the banner with a retry so the
+      // user isn't left believing they answered while the agent stays blocked.
+      if (pending) {
+        runtime.timeline = restoreApproval(
+          runtime.timeline,
+          pending,
+          err instanceof Error ? err.message : 'Could not send your decision — tap again to retry.',
+        );
+        this.emit();
+      }
+    }
+  }
+
+  /** Best-effort "stop generating": ask the extension to cancel the in-flight turn. */
+  async sendInterrupt(channelId: string): Promise<void> {
+    const runtime = this.runtimes.get(channelId);
+    if (!runtime) return;
+    try {
+      await runtime.client?.send(interrupt());
+    } catch {
+      // A failed interrupt send must never crash the UI; the user can retry.
+    }
   }
 
   async sendMode(channelId: string, mode: SessionMode): Promise<void> {

@@ -29,6 +29,7 @@ export const KIND: {
   readonly SESSION_END: "control.session_end";
   readonly HEARTBEAT: "control.heartbeat";
   readonly MODE: "control.mode";
+  readonly INTERRUPT: "control.interrupt";
   readonly HISTORY_REQUEST: "control.history_request";
   readonly HISTORY: "control.history";
 };
@@ -127,6 +128,10 @@ export interface ModeChange extends BaseMessage {
   kind: "control.mode";
   mode: SessionMode;
 }
+/** Phone -> ext: stop/cancel the in-flight generation or tool run. */
+export interface InterruptMessage extends BaseMessage {
+  kind: "control.interrupt";
+}
 /** Phone -> ext: request a page of older turns (cursor = turn_index, exclusive). */
 export interface HistoryRequest extends BaseMessage {
   kind: "control.history_request";
@@ -156,6 +161,7 @@ export type InnerMessage =
   | SessionEnd
   | Heartbeat
   | ModeChange
+  | InterruptMessage
   | HistoryRequest
   | History;
 
@@ -196,6 +202,7 @@ export function sessionMeta(title?: string, cwd?: string): SessionMeta;
 export function sessionEnd(reason?: string): SessionEnd;
 export function heartbeat(): Heartbeat;
 export function modeChange(mode: SessionMode): ModeChange;
+export function interrupt(): InterruptMessage;
 export function historyRequest(before?: number | null, limit?: number): HistoryRequest;
 export function history(
   items: HistoryItem[],

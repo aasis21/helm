@@ -32,7 +32,7 @@ const ui = {
 
 // Best-effort: load SUPABASE_URL / SUPABASE_ANON_KEY / HELM_TRANSPORT from a colocated
 // `.env` (next to the installed extension or in the launch cwd) so operators don't have to
-// export them by hand before every `gh copilot`. Already-exported shell vars always win;
+// export them by hand before every `copilot`. Already-exported shell vars always win;
 // a missing/unreadable file is a silent no-op. Never commit a real `.env` (it is gitignored).
 function loadLocalEnv() {
   if (typeof parseEnv !== "function") return;
@@ -95,11 +95,10 @@ const session = await joinSession({
   streaming: true,
   onPermissionRequest: async (request, invocation) => {
     if (!permissionRelay) {
-      return {
-        kind: "denied-by-permission-request-hook",
-        message: "Helm encrypted approval relay is not connected",
-        interrupt: false,
-      };
+      // No phone is paired yet, so Helm has no remote user to ask. Report the user as
+      // unavailable (a valid native decision kind) so the CLI falls back to its own
+      // in-terminal approval prompt instead of erroring on an unknown decision.
+      return { kind: "user-not-available" };
     }
     return permissionRelay.onPermissionRequest(request, invocation);
   },

@@ -585,17 +585,33 @@
 .send-btn:disabled { background: var(--bg-rule); color: var(--fg-faint); }
 .send-btn svg { width: 18px; height: 18px; }
 
+/* Stop / interrupt: shown in place of Send while the agent is busy (#1). */
+.stop-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  cursor: pointer;
+}
+.stop-btn:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+.stop-btn svg { width: 14px; height: 14px; }
+
 /* approval + ended banners (pinned above composer) */
 .approval-banner {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--warning) 38%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--warning) 9%, var(--bg-elev));
 }
+.approval-head { display: flex; align-items: baseline; gap: 8px; }
 .approval-warn { flex: 0 0 auto; color: var(--warning); font-size: 15px; }
 .approval-body {
   display: flex;
@@ -608,10 +624,63 @@
 }
 .approval-tool { font-weight: 700; font-family: var(--mono); font-size: 12.5px; }
 .approval-hint { color: var(--fg-dim); font-size: 11.5px; }
-.approval-actions { display: flex; flex: 1 0 100%; flex-wrap: wrap; gap: 7px; }
+
+/* the command / args being approved — the user must see what they allow (#27) */
+.approval-args { margin: 0; }
+.approval-args > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.approval-args > summary::-webkit-details-marker { display: none; }
+.approval-args-line {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--bg-rule);
+  color: var(--fg);
+}
+.approval-args-more {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+}
+.approval-args[open] > summary .approval-args-more { color: var(--accent); }
+.approval-args-full {
+  margin: 7px 0 0;
+  padding: 8px 9px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--bg-rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre;
+  color: var(--fg-dim);
+}
+.approval-error { margin: 0; color: var(--danger); font-size: 11.5px; line-height: 1.3; }
+
+.approval-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .approval-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 0 1 auto;
-  padding: 6px 12px;
+  padding: 7px 13px;
+  min-height: 38px;
   border: 1px solid var(--bg-rule);
   border-radius: 9px;
   background: transparent;
@@ -619,8 +688,24 @@
   font: inherit;
   font-size: 12.5px;
 }
-.approval-btn.allow { border-color: transparent; background: var(--accent); color: #fff; }
-.approval-btn.deny { color: var(--fg-dim); }
+.approval-btn-icon { font-size: 11px; line-height: 1; opacity: 0.9; }
+/* Primary allow stays clear, but is no longer the ONLY prominent action. */
+.approval-btn.allow { border-color: transparent; background: var(--accent); color: #fff; font-weight: 600; }
+/* "Always allow this session" is de-emphasized vs a one-shot allow. */
+.approval-btn.allow.secondary {
+  background: transparent;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  font-weight: 500;
+}
+/* Deny is now clearly available (was muted grey): outlined danger + ✕ glyph (#29). */
+.approval-btn.deny {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-weight: 600;
+}
+.approval-btn.deny:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); }
 
 .ended-banner {
   display: flex;
