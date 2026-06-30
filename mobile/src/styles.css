@@ -91,16 +91,24 @@ input:disabled {
 
 .brand-panel {
   position: relative;
-  min-height: 620px;
+  display: flex;
+  flex-direction: column;
+  min-height: 600px;
   padding: clamp(28px, 7vw, 72px);
   overflow: hidden;
   border-radius: 44px;
+}
+
+.brand-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .brand-panel::after {
   position: absolute;
   right: -12%;
   bottom: -18%;
+  z-index: 0;
   width: 420px;
   height: 420px;
   content: "";
@@ -113,7 +121,7 @@ input:disabled {
   display: grid;
   width: 74px;
   height: 74px;
-  margin-bottom: 72px;
+  margin-bottom: clamp(28px, 6vw, 56px);
   place-items: center;
   border: 1px solid var(--accent);
   border-radius: 24px;
@@ -123,6 +131,7 @@ input:disabled {
   font-size: 42px;
   font-weight: 900;
   transform: rotate(-7deg);
+  box-shadow: 0 18px 44px rgba(215, 255, 115, 0.34);
 }
 
 .eyebrow {
@@ -157,24 +166,25 @@ h2 {
 
 .lede {
   max-width: 620px;
+  margin-bottom: 28px;
   color: #c8d1c4;
   font-size: 1.08rem;
   line-height: 1.7;
 }
 
 .signal-card {
-  position: absolute;
-  right: 34px;
-  bottom: 34px;
-  z-index: 1;
+  align-self: flex-start;
+  margin-top: auto;
   display: inline-flex;
   gap: 10px;
   align-items: center;
-  padding: 12px 14px;
+  max-width: 100%;
+  padding: 12px 16px;
   border: 1px solid rgba(111, 255, 233, 0.28);
   border-radius: 999px;
   color: #d9fffb;
-  background: rgba(0, 0, 0, 0.28);
+  background: rgba(0, 0, 0, 0.32);
+  font-size: 0.92rem;
 }
 
 .pulse-dot,
@@ -503,13 +513,27 @@ pre {
     display: grid;
   }
 
+  .pairing-shell {
+    align-items: start;
+    align-content: start;
+  }
+
   .brand-panel {
-    min-height: 430px;
+    min-height: auto;
     border-radius: 32px;
   }
 
+  .brand-panel::after {
+    width: 300px;
+    height: 300px;
+  }
+
   .brand-mark {
-    margin-bottom: 44px;
+    margin-bottom: 28px;
+  }
+
+  .signal-card {
+    margin-top: 28px;
   }
 
   .topbar,
