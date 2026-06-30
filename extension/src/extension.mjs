@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { parseEnv } from "node:util";
 import QRCode from "qrcode";
 import { createClient } from "@supabase/supabase-js";
 import { joinSession } from "@github/copilot-sdk/extension";
@@ -12,6 +16,35 @@ import {
   waitForPeer,
 } from "@aasis21/helm-shared";
 import { attachRelay, createPermissionRelay } from "./relay.mjs";
+
+// Best-effort: load SUPABASE_URL / SUPABASE_ANON_KEY / HELM_TRANSPORT from a colocated
+// `.env` (next to the installed extension or in the launch cwd) so operators don't have to
+// export them by hand before every `gh copilot`. Already-exported shell vars always win;
+// a missing/unreadable file is a silent no-op. Never commit a real `.env` (it is gitignored).
+function loadLocalEnv() {
+  if (typeof parseEnv !== "function") return;
+  const here = (() => {
+    try {
+      return dirname(fileURLToPath(import.meta.url));
+    } catch {
+      return null;
+    }
+  })();
+  const candidates = [join(process.cwd(), ".env")];
+  if (here) candidates.push(join(here, ".env"));
+  for (const file of candidates) {
+    try {
+      const parsed = parseEnv(readFileSync(file, "utf8"));
+      for (const [k, v] of Object.entries(parsed)) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+      return;
+    } catch {
+      // No readable .env here; try the next candidate.
+    }
+  }
+}
+loadLocalEnv();
 
 const laptopKeys = await generateKeyPair();
 const channelId = process.env.HELM_CHANNEL_ID || randomChannelId();

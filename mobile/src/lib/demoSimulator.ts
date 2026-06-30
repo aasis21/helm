@@ -39,7 +39,11 @@ export async function startDemoSession(): Promise<DemoSession> {
     timeoutMs: 10_000,
   });
   const pairingPayload = buildPairingPayload({ channelId, publicKeyB64: laptopKeys.publicKeyB64 });
-  const client = await pairFromQr(JSON.stringify(pairingPayload));
+  // The Demo/Simulator runs entirely in-process: force the phone side onto the same
+  // in-memory LocalTransport bus as the simulated laptop, regardless of the build's
+  // VITE_HELM_TRANSPORT (which may be `supabase` for real pairing).
+  const phoneTransport = createLocalTransport({ channelId });
+  const client = await pairFromQr(JSON.stringify(pairingPayload), { transport: phoneTransport });
   const { key: laptopKey } = await laptopPeer;
   const extension = new SecureChannel({
     transport: laptopTransport,

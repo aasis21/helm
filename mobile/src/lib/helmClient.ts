@@ -29,11 +29,14 @@ const ALL_EVENTS: LogicalEvent[] = [
   EVENTS.CONTROL,
 ];
 
-export async function pairFromQr(raw: string): Promise<HelmClient> {
+export async function pairFromQr(
+  raw: string,
+  opts?: { transport?: Transport },
+): Promise<HelmClient> {
   const { channelId, publicKeyB64 } = parsePairingPayload(raw);
   const phoneKeys = await generateKeyPair();
   const deviceId = getStableDeviceId();
-  const transport = createTransport(channelId);
+  const transport = opts?.transport ?? createTransport(channelId);
   const { key } = await sayHello({
     transport,
     keyPair: phoneKeys,
