@@ -55,7 +55,8 @@ const pairingPayload = buildPairingPayload({
 
 let relayHandle = null;
 let permissionRelay = null;
-const transport = createTransport({ channelId });
+let shuttingDown = false;
+let connecting = false;
 
 const session = await joinSession({
   streaming: true,
@@ -75,6 +76,8 @@ const session = await joinSession({
       description: "Show the Helm mobile pairing QR code for this Copilot session.",
       handler: async () => {
         await logPairingQr(session, JSON.stringify(pairingPayload));
+        // If a prior connect attempt gave up (or the relay dropped), re-kick it.
+        if (!relayHandle && !shuttingDown) void connectRelayWithRetry();
       },
     },
   ],
@@ -84,6 +87,7 @@ const session = await joinSession({
 // SDK callback hooks (the old `hooks: { onSessionEnd }` throws at session.resume), so we
 // subscribe to the `session.shutdown` event instead to stop the relay and tell the phone.
 session.on?.("session.shutdown", (event) => {
+  shuttingDown = true;
   const reason = event?.data?.shutdownType ?? event?.data?.errorReason ?? "session_end";
   void relayHandle?.stop?.(reason);
 });
@@ -91,50 +95,105 @@ session.on?.("session.shutdown", (event) => {
 await logPairingQr(session, JSON.stringify(pairingPayload));
 session.log?.("Helm: waiting for phone pairing hello…");
 
-try {
-  const { key, peer } = await waitForPeer({
-    transport,
-    keyPair: laptopKeys,
-    timeoutMs: 0,
-  });
-  const channel = new SecureChannel({
-    transport,
-    key,
-    identity: {
-      userId: process.env.HELM_USER_ID || "copilot",
-      deviceId: process.env.HELM_DEVICE_ID || "laptop",
-      sessionId: session.sessionId || channelId,
-    },
-  });
-  permissionRelay = createPermissionRelay({
-    channel,
-    logger: (message, options) => session.log?.(message, options),
-  });
-  // SupabaseTransport is subscribe-order independent (single catch-all broadcast listener
-  // + internal dispatch), so attachRelay may register SecureChannel handlers after
-  // waitForPeer has connected without losing events on either transport.
-  relayHandle = await attachRelay({
-    session,
-    channel,
-    channelId,
-    permissionRelay,
-  });
-  relayHandle.session = session;
-  session.log?.(
-    `Helm: encrypted relay attached to ${peer.deviceId ?? "phone"}.`,
-  );
-} catch (err) {
-  process.stderr.write(`Helm: encrypted channel not ready: ${err?.message ?? err}\n`);
-  session.log?.(
-    `Helm: encrypted relay could not attach: ${err?.message ?? err}`,
-    { level: "warning", ephemeral: false },
-  );
-}
-
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
+    shuttingDown = true;
     void relayHandle?.stop?.(sig).finally(() => process.exit(0));
   });
+}
+
+void connectRelayWithRetry();
+
+// Connect the encrypted relay and wait (forever) for the phone to pair. A transient
+// Supabase subscribe failure (CHANNEL_ERROR) must not permanently kill pairing for a
+// walk-away tool, so retry with capped exponential backoff using a FRESH transport each
+// attempt (a realtime channel is single-use after an error). `/helm-pair` can re-kick this.
+async function connectRelayWithRetry() {
+  if (connecting || relayHandle || shuttingDown) return;
+  connecting = true;
+  try {
+    const maxAttempts = positiveIntFromEnv("HELM_CONNECT_MAX_ATTEMPTS", 6);
+    for (let attempt = 1; !shuttingDown; attempt++) {
+      const transport = createTransport({ channelId });
+      try {
+        const { key, peer } = await waitForPeer({
+          transport,
+          keyPair: laptopKeys,
+          timeoutMs: 0,
+        });
+        if (shuttingDown) {
+          await closeQuietly(transport);
+          return;
+        }
+        const channel = new SecureChannel({
+          transport,
+          key,
+          identity: {
+            userId: process.env.HELM_USER_ID || "copilot",
+            deviceId: process.env.HELM_DEVICE_ID || "laptop",
+            sessionId: session.sessionId || channelId,
+          },
+        });
+        permissionRelay = createPermissionRelay({
+          channel,
+          logger: (message, options) => session.log?.(message, options),
+        });
+        // SupabaseTransport is subscribe-order independent (single catch-all broadcast
+        // listener + internal dispatch), so attachRelay may register SecureChannel handlers
+        // after waitForPeer has connected without losing events on either transport.
+        relayHandle = await attachRelay({
+          session,
+          channel,
+          channelId,
+          permissionRelay,
+        });
+        relayHandle.session = session;
+        session.log?.(`Helm: encrypted relay attached to ${peer.deviceId ?? "phone"}.`);
+        return;
+      } catch (err) {
+        await closeQuietly(transport);
+        if (shuttingDown) return;
+        if (attempt >= maxAttempts) {
+          process.stderr.write(
+            `Helm: encrypted channel not ready after ${attempt} attempts: ${err?.message ?? err}\n`,
+          );
+          session.log?.(
+            `Helm: encrypted relay could not attach after ${attempt} attempts: ${err?.message ?? err}. Run /helm-pair to retry.`,
+            { level: "warning", ephemeral: false },
+          );
+          return;
+        }
+        const backoffMs = Math.min(1500 * 2 ** (attempt - 1), 15_000);
+        session.log?.(
+          `Helm: relay connect attempt ${attempt} failed (${err?.message ?? err}); retrying in ${Math.round(backoffMs / 1000)}s…`,
+          { level: "warning", ephemeral: false },
+        );
+        await sleep(backoffMs);
+      }
+    }
+  } finally {
+    connecting = false;
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+  });
+}
+
+async function closeQuietly(transport) {
+  try {
+    await transport?.close?.();
+  } catch {
+    // best-effort cleanup of a failed transport
+  }
+}
+
+function positiveIntFromEnv(name, fallback) {
+  const raw = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
 }
 
 async function logPairingQr(session, payload) {
