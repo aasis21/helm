@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { generateKeyPair, encryptJSON, decryptJSON, randomChannelId } from "../crypto.mjs";
-import { waitForPeer, sayHello, buildPairingPayload, parsePairingPayload } from "../pairing.mjs";
+import { waitForPeer, sayHello, listenForPeers, buildPairingPayload, parsePairingPayload } from "../pairing.mjs";
 import { createLocalTransport, _resetLocalBus } from "../transport-local.mjs";
 
 test("buildPairingPayload / parsePairingPayload round-trip", () => {
@@ -53,4 +53,60 @@ test("handshake derives matching keys on both ends and round-trips encryption", 
 
   await laptopT.close();
   await phoneT.close();
+});
+
+test("listenForPeers re-pairs across repeated scans (single-shot waitForPeer would not)", async () => {
+  _resetLocalBus();
+  const channelId = randomChannelId();
+  const laptop = await generateKeyPair();
+  const laptopT = createLocalTransport({ channelId });
+
+  // The laptop keeps listening for the WHOLE session, acking every hello and deriving a fresh key.
+  const peers = [];
+  const listener = await listenForPeers({
+    transport: laptopT,
+    keyPair: laptop,
+    onPeer: (info) => {
+      peers.push(info);
+    },
+  });
+
+  // First phone pairs. retryMs is parked high so each sayHello emits exactly one deterministic hello.
+  const phoneA = await generateKeyPair();
+  const phoneAT = createLocalTransport({ channelId });
+  const resA = await sayHello({
+    transport: phoneAT,
+    keyPair: phoneA,
+    peerPublicKeyB64: laptop.publicKeyB64,
+    deviceId: "phone-a",
+    waitForAck: true,
+    retryMs: 10_000,
+  });
+
+  // A SECOND scan / reload (a brand-new phone keypair) must also get an ack and re-pair.
+  const phoneB = await generateKeyPair();
+  const phoneBT = createLocalTransport({ channelId });
+  const resB = await sayHello({
+    transport: phoneBT,
+    keyPair: phoneB,
+    peerPublicKeyB64: laptop.publicKeyB64,
+    deviceId: "phone-b",
+    waitForAck: true,
+    retryMs: 10_000,
+  });
+
+  assert.equal(peers.length, 2);
+  assert.equal(peers[0].peer.deviceId, "phone-a");
+  assert.equal(peers[1].peer.deviceId, "phone-b");
+
+  // Each independently-derived laptop key must interoperate with the matching phone key.
+  const sealedA = await encryptJSON(resA.key, { from: "a" });
+  assert.deepEqual(await decryptJSON(peers[0].key, sealedA), { from: "a" });
+  const sealedB = await encryptJSON(resB.key, { from: "b" });
+  assert.deepEqual(await decryptJSON(peers[1].key, sealedB), { from: "b" });
+
+  listener.stop();
+  await laptopT.close();
+  await phoneAT.close();
+  await phoneBT.close();
 });

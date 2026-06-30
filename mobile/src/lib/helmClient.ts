@@ -43,7 +43,7 @@ export async function pairFromQr(
     peerPublicKeyB64: publicKeyB64,
     deviceId,
     waitForAck: true,
-    timeoutMs: 10_000,
+    timeoutMs: 20_000,
   });
   const privateKeyJwk = await crypto.subtle.exportKey('jwk', phoneKeys.privateKey);
   const pairing: StoredPairing = {

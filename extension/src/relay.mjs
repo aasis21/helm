@@ -137,14 +137,18 @@ export async function attachRelay({
     }),
   );
 
-  async function stop(reason = "extension_shutdown") {
+  async function stop(reason = "extension_shutdown", { closeTransport = true } = {}) {
     if (stopped) return;
     stopped = true;
     clearInterval(heartbeatTimer);
     for (const unsubscribe of unsubscribers.splice(0)) unsubscribe?.();
     approvals.close?.();
-    await sendSafe(sessionEnd(reason));
-    await channel.close?.();
+    // On a re-pair we keep the shared transport open for the next phone, so we neither announce a
+    // session end (the new phone uses a different key and couldn't read it) nor close the channel.
+    if (closeTransport) {
+      await sendSafe(sessionEnd(reason));
+      await channel.close?.();
+    }
   }
 
   return { stop, onPermissionRequest: approvals.onPermissionRequest };

@@ -44,6 +44,48 @@ export function parsePairingPayload(input) {
 }
 
 /**
+ * Laptop/extension side, PERSISTENT variant: keep listening for phone hellos and ACK EVERY one,
+ * deriving a fresh session key per hello. Unlike `waitForPeer` (single-shot), this never stops
+ * after the first pair, so a phone that re-scans, reloads, or reconnects always gets an ACK and
+ * can re-pair. `onPeer` is invoked once per hello with the derived key + peer info; the laptop
+ * uses it to (re)attach its encrypted relay. The ACK is sent BEFORE `onPeer` runs so the phone
+ * confirms fast even if relay (re)attach is slow. `stop()` only unsubscribes — it does NOT close
+ * the transport (the caller owns the transport lifecycle).
+ *
+ * @param {{ transport: import("./transport").Transport, keyPair: { privateKey: CryptoKey }, onPeer: (info: { key: CryptoKey, peer: { publicKeyB64: string, deviceId?: string } }) => void | Promise<void>, connect?: boolean }} opts
+ * @returns {Promise<{ stop: () => void }>}
+ */
+export async function listenForPeers({ transport, keyPair, onPeer, connect = true } = {}) {
+  if (!transport) throw new Error("helm/pairing: transport is required");
+  if (!keyPair?.privateKey) throw new Error("helm/pairing: keyPair is required");
+  if (typeof onPeer !== "function") throw new Error("helm/pairing: onPeer is required");
+
+  const unsub = transport.subscribe(PAIR_EVENTS.HELLO, async (payload) => {
+    if (!payload || typeof payload.pub !== "string") return;
+    let key;
+    try {
+      key = await deriveSessionKey(keyPair.privateKey, payload.pub);
+    } catch {
+      return; // malformed/incompatible public key — ignore.
+    }
+    // ACK first: the phone re-broadcasts HELLO until it hears this, so answer every hello fast.
+    try {
+      await transport.publish(PAIR_EVENTS.ACK, { v: PAIR_VERSION, ok: true, ts: Date.now() });
+    } catch {
+      /* ack is best-effort */
+    }
+    try {
+      await onPeer({ key, peer: { publicKeyB64: payload.pub, deviceId: payload.deviceId } });
+    } catch {
+      /* the caller is responsible for surfacing its own (re)attach failures */
+    }
+  });
+
+  if (connect) await transport.connect?.();
+  return { stop: () => unsub?.() };
+}
+
+/**
  * Laptop/extension side: wait for the phone's hello, derive the shared session key.
  * @param {{ transport: import("./transport").Transport, keyPair: { privateKey: CryptoKey }, timeoutMs?: number, connect?: boolean }} opts
  * @returns {Promise<{ key: CryptoKey, peer: { publicKeyB64: string, deviceId?: string } }>}
@@ -95,7 +137,14 @@ export async function waitForPeer({ transport, keyPair, timeoutMs = 0, connect =
 
 /**
  * Phone side: derive the key from the scanned laptop public key, then announce our public key.
- * @param {{ transport: import("./transport").Transport, keyPair: { privateKey: CryptoKey, publicKeyB64: string }, peerPublicKeyB64: string, deviceId?: string, waitForAck?: boolean, timeoutMs?: number }} opts
+ *
+ * When `waitForAck` is true we RE-BROADCAST the hello on an interval until the laptop ACKs (or we
+ * hit `timeoutMs`). Supabase Broadcast has no replay, so a single hello is lost if the laptop's
+ * channel finishes subscribing a moment after we publish (common right after `gh copilot` starts,
+ * since the QR prints immediately). Re-announcing makes the handshake self-healing — the laptop's
+ * persistent `listenForPeers` simply answers each hello and the phone resolves on the first ACK.
+ *
+ * @param {{ transport: import("./transport").Transport, keyPair: { privateKey: CryptoKey, publicKeyB64: string }, peerPublicKeyB64: string, deviceId?: string, waitForAck?: boolean, timeoutMs?: number, retryMs?: number }} opts
  * @returns {Promise<{ key: CryptoKey }>}
  */
 export async function sayHello({
@@ -104,7 +153,8 @@ export async function sayHello({
   peerPublicKeyB64,
   deviceId,
   waitForAck = false,
-  timeoutMs = 10_000,
+  timeoutMs = 20_000,
+  retryMs = 1_200,
 } = {}) {
   if (!transport) throw new Error("helm/pairing: transport is required");
   if (!keyPair?.privateKey || !keyPair.publicKeyB64) {
@@ -113,29 +163,66 @@ export async function sayHello({
   if (!peerPublicKeyB64) throw new Error("helm/pairing: peerPublicKeyB64 is required");
 
   const key = await deriveSessionKey(keyPair.privateKey, peerPublicKeyB64);
-
-  let ackPromise = Promise.resolve();
-  if (waitForAck) {
-    ackPromise = new Promise((resolve, reject) => {
-      const unsub = transport.subscribe(PAIR_EVENTS.ACK, () => {
-        unsub?.();
-        resolve();
-      });
-      const t = setTimeout(() => {
-        unsub?.();
-        reject(new Error("helm/pairing: no ack from laptop"));
-      }, timeoutMs);
-      t.unref?.();
-    });
-  }
-
-  await transport.connect?.();
-  await transport.publish(PAIR_EVENTS.HELLO, {
+  const buildHello = () => ({
     v: PAIR_VERSION,
     pub: keyPair.publicKeyB64,
     deviceId,
     ts: Date.now(),
   });
-  if (waitForAck) await ackPromise;
-  return { key };
+
+  // Fire-and-forget path (e.g. restoring a saved pairing): publish once, don't block on an ack.
+  if (!waitForAck) {
+    await transport.connect?.();
+    await transport.publish(PAIR_EVENTS.HELLO, buildHello());
+    return { key };
+  }
+
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    let interval;
+    let timer;
+    let unsub;
+
+    const cleanup = () => {
+      if (interval) clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      unsub?.();
+    };
+
+    // Register the ACK listener BEFORE connecting so no ack can race ahead of us.
+    unsub = transport.subscribe(PAIR_EVENTS.ACK, () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ key });
+    });
+
+    const announce = () => {
+      Promise.resolve(transport.publish(PAIR_EVENTS.HELLO, buildHello())).catch(() => {
+        // Ignore transient publish failures; the interval will try again.
+      });
+    };
+
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("helm/pairing: no ack from laptop"));
+    }, timeoutMs);
+    timer.unref?.();
+
+    Promise.resolve(transport.connect?.())
+      .then(() => {
+        if (settled) return;
+        announce();
+        interval = setInterval(announce, retryMs);
+        interval.unref?.();
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      });
+  });
 }
