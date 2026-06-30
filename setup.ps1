@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# Build Helm's Copilot CLI extension and install it where `gh copilot` auto-discovers it
+# Build Helm's Copilot CLI extension and install it where `copilot` auto-discovers it
 # (~/.copilot/extensions/helm). Windows-first; see setup.sh for macOS/Linux.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -24,10 +24,10 @@ try {
     Write-Host "No .env at repo root. Create one next to $dest\extension.mjs with:" -ForegroundColor Yellow
     Write-Host "  HELM_TRANSPORT=supabase" -ForegroundColor Yellow
     Write-Host "  HELM_SUPABASE_URL=...   HELM_SUPABASE_ANON_KEY=..." -ForegroundColor Yellow
-    Write-Host "(or export those vars before 'gh copilot'). The extension auto-loads a colocated .env." -ForegroundColor Yellow
+    Write-Host "(or export those vars before 'copilot'). The extension auto-loads a colocated .env." -ForegroundColor Yellow
   }
 
-  Write-Host "`nDone. Start 'gh copilot' in any repo; Helm prints a pairing QR (or run /helm). Scan it from the Helm app." -ForegroundColor Cyan
+  Write-Host "`nDone. Start 'copilot' in any repo; Helm prints a pairing QR (or run /helm). Scan it from the Helm app." -ForegroundColor Cyan
 } finally {
   Pop-Location
 }

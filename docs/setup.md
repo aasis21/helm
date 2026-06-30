@@ -9,7 +9,7 @@ the real relay is the only user-gated step.
 - Node.js ≥ 18 (developed on Node 24).
 - For the mobile app on a device: Android Studio + SDK (a web/demo build needs neither).
 - The Copilot CLI extension uses `@github/copilot-sdk`, which the CLI provides at
-  runtime — you do **not** install it to run the extension under `gh copilot`.
+  runtime — you do **not** install it to run the extension under `copilot`.
 
 ## Install
 
@@ -64,7 +64,7 @@ and reflects mode changes — all over AES-256-GCM (no plaintext on the wire).
 
 The extension auto-loads `HELM_SUPABASE_URL` / `HELM_SUPABASE_ANON_KEY` /
 `HELM_TRANSPORT=supabase` from a `.env` next to it (or inherits them from the shell that
-launches `gh copilot`; exported shell vars win). The names are Helm-namespaced so a generic
+launches `copilot`; exported shell vars win). The names are Helm-namespaced so a generic
 `SUPABASE_URL` you may have exported for an unrelated project can't hijack the relay; the
 generic names still work as a fallback when the namespaced ones are unset.
 
@@ -87,7 +87,7 @@ generic names still work as a fallback when the namespaced ones are unset.
 > Redeploy after a change with `npm run build -w @aasis21/helm-mobile` then a Netlify deploy
 > of `mobile/dist` (or connect the repo — `netlify.toml` already has the build config).
 
-**3. Pair and drive it.** Start `gh copilot` in any repo; Helm prints a pairing QR via
+**3. Pair and drive it.** Start `copilot` in any repo; Helm prints a pairing QR via
 `session.log()` (run `/helm` to re-show it). Scan/paste it, then trigger a Copilot
 action (e.g. a file write) and watch the stream — approve/deny and switch modes from the
 phone. Everything on the relay is AES-256-GCM ciphertext.

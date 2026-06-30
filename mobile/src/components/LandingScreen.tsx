@@ -29,7 +29,7 @@ const STEPS = [
   {
     n: 2,
     title: 'Start a Copilot session',
-    body: 'Run gh copilot in any project. A pairing QR appears right on your screen.',
+    body: 'Run copilot in any project. A pairing QR appears right on your screen.',
   },
   {
     n: 3,

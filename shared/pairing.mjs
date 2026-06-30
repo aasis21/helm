@@ -140,7 +140,7 @@ export async function waitForPeer({ transport, keyPair, timeoutMs = 0, connect =
  *
  * When `waitForAck` is true we RE-BROADCAST the hello on an interval until the laptop ACKs (or we
  * hit `timeoutMs`). Supabase Broadcast has no replay, so a single hello is lost if the laptop's
- * channel finishes subscribing a moment after we publish (common right after `gh copilot` starts,
+ * channel finishes subscribing a moment after we publish (common right after `copilot` starts,
  * since the QR prints immediately). Re-announcing makes the handshake self-healing — the laptop's
  * persistent `listenForPeers` simply answers each hello and the phone resolves on the first ACK.
  *

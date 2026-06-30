@@ -71,7 +71,7 @@ export function JoinSessionScreen({
         <p className="eyebrow">{hasSessions ? 'Join another session' : 'Pair your phone'}</p>
         <h2>Point your camera at the laptop QR</h2>
         <p className="join-hint">
-          Run <code>gh copilot</code> on your laptop, then frame the pairing QR it prints.
+          Run <code>copilot</code> on your laptop, then frame the pairing QR it prints.
         </p>
       </header>
 

@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   Downloads the prebuilt Helm Copilot CLI extension and drops it where
-  `gh copilot` auto-discovers it (~/.copilot/extensions/helm), wired to the
+  `copilot` auto-discovers it (~/.copilot/extensions/helm), wired to the
   hosted relay so there is zero config. No git clone, no Node build.
 
   Designed to be run with:

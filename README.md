@@ -1,7 +1,7 @@
 # Helm
 
 **Your Copilot command center.** Helm is a secure mobile app that binds to your live
-`gh copilot` sessions: watch the token stream, answer permission prompts, send prompts, and
+Copilot CLI sessions: watch the token stream, answer permission prompts, send prompts, and
 switch modes — all from your phone.
 
 > **Try it now (no install):** **<https://usehelm.netlify.app>** — open on your phone,
@@ -22,7 +22,7 @@ irm https://usehelm.netlify.app/install.ps1 | iex
 curl -fsSL https://usehelm.netlify.app/install.sh | bash
 ```
 
-Then start `gh copilot` in any repo, open **<https://usehelm.netlify.app>** on your phone,
+Then start `copilot` in any repo, open **<https://usehelm.netlify.app>** on your phone,
 scan the QR (or run `/helm` to re-show it), and approve/deny from anywhere.
 
 - **Zero-config** — uses the creator's hosted relay (a client-safe publishable key + RLS +
@@ -45,7 +45,7 @@ scan the QR (or run `/helm` to re-show it), and approve/deny from anywhere.
 ```
 +------------------------------+        +------------------------------+        +-------------------------------+
 | Helm Mobile                  |        |   Supabase Realtime          |        |  Laptop terminal              |
-| (React + Capacitor, Android) |        |   Broadcast channel          |        |  gh copilot (parent)          |
+| (React + Capacitor, Android) |        |   Broadcast channel          |        |  copilot (parent)             |
 |                              |        |   private:helm:<channelId>   |        |   └─ extension.mjs (child)    |
 |  • scans QR (channel + pub)  |  WSS   |   • in-memory pub/sub        |  WSS   |   • joinSession()             |
 |  • ECDH → AES-256-GCM        | <----> |   • zero DB persistence      | <----> |   • onPermissionRequest→relay |

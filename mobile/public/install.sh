@@ -4,7 +4,7 @@
 #   curl -fsSL https://usehelm.netlify.app/install.sh | bash
 #
 # Downloads the prebuilt Helm Copilot CLI extension and drops it where
-# `gh copilot` auto-discovers it (~/.copilot/extensions/helm), wired to the
+# `copilot` auto-discovers it (~/.copilot/extensions/helm), wired to the
 # hosted relay so there is zero config. No git clone, no Node build.
 #
 # Run-your-own-relay overrides (env vars):

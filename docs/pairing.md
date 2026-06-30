@@ -1,6 +1,6 @@
 # Helm pairing handshake
 
-How a phone attaches to a live `gh copilot` session and establishes an end-to-end
+How a phone attaches to a live `copilot` session and establishes an end-to-end
 encrypted channel, with no shared secret ever leaving the two devices.
 
 ## Why a handshake is needed

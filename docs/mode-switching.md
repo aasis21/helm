@@ -256,7 +256,7 @@ setting.
 
 - Primary path requires a CLI host that implements the generated
   `session.mode.set` JSON-RPC method. The installed SDK types and JS client know
-  about it, but an older `gh copilot` host may reject the request.
+  about it, but an older `copilot` host may reject the request.
 - There is no documented `session.setMode()` convenience method in
   `CopilotSession`; do not wait for one.
 - `session.send({ prompt: "/plan" | "/autopilot" | "/interactive" })` is only a
@@ -274,7 +274,7 @@ setting.
 
 ## Open questions to verify against a real CLI
 
-1. Does the currently installed `gh copilot` runtime accept all three
+1. Does the currently installed `copilot` runtime accept all three
    `session.mode.set` values from a child extension process?
 2. While a turn is actively running, does `mode.set` apply immediately, apply to
    the next turn, or fail until idle?

@@ -112,7 +112,7 @@ try {
             Copy-Item $envFile (Join-Path $dest '.env') -Force
             Ok 'copied .env (relay credentials) next to the extension'
         } else {
-            Warn "no .env at repo root - set HELM_SUPABASE_URL / HELM_SUPABASE_ANON_KEY / HELM_TRANSPORT before 'gh copilot'"
+            Warn "no .env at repo root - set HELM_SUPABASE_URL / HELM_SUPABASE_ANON_KEY / HELM_TRANSPORT before 'copilot'"
         }
     } else { Info 'SkipInstall' }
 
@@ -129,7 +129,7 @@ try {
         Write-Host '  Installer: irm https://usehelm.netlify.app/install.ps1 | iex' -ForegroundColor Green
     }
     if (-not $SkipInstall) {
-        Write-Host '  Local CLI: restart `gh copilot` to load the new extension; run /helm to show the QR.' -ForegroundColor Green
+        Write-Host '  Local CLI: restart `copilot` to load the new extension; run /helm to show the QR.' -ForegroundColor Green
     }
 }
 finally {

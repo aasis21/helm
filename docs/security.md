@@ -8,7 +8,7 @@ two paired devices.
 
 | Component | Trusted with plaintext? | Notes |
 |---|---|---|
-| Extension (laptop) | yes | runs as a child of `gh copilot`; holds one ECDH private key |
+| Extension (laptop) | yes | runs as a child of `copilot`; holds one ECDH private key |
 | Mobile app (phone) | yes | holds the other ECDH private key |
 | Supabase Realtime | **no** | sees only `{ iv, ciphertext, ts }` envelopes + a channel name |
 | Network / ISP | **no** | TLS to Supabase + E2E payload encryption |
@@ -70,7 +70,7 @@ per-message counter inside the encrypted payload is a tracked hardening item.
 ## What is NOT stored
 
 v1 keeps **no history**: no database rows, no logs of prompts/responses, no key
-escrow. Closing the `gh copilot` terminal ends the session, the extension process
+escrow. Closing the `copilot` terminal ends the session, the extension process
 dies, the relay channel vanishes, and the phone shows "Session Ended".
 
 ## v2 evolution (forward-looking)

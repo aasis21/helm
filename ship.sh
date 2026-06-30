@@ -100,7 +100,7 @@ if [ "$SKIP_INSTALL" -eq 0 ]; then
     cp "$root/.env" "$dest/.env"
     ok "copied .env (relay credentials) next to the extension"
   else
-    warn "no .env at repo root - set HELM_SUPABASE_URL / HELM_SUPABASE_ANON_KEY / HELM_TRANSPORT before 'gh copilot'"
+    warn "no .env at repo root - set HELM_SUPABASE_URL / HELM_SUPABASE_ANON_KEY / HELM_TRANSPORT before 'copilot'"
   fi
 else
   info "skip-install"
@@ -117,4 +117,4 @@ if [ "$SKIP_DEPLOY" -eq 0 ] && [ "$DRAFT" -eq 0 ]; then
   printf '\033[32m  Site:      https://usehelm.netlify.app\033[0m\n'
   printf '\033[32m  Installer: curl -fsSL https://usehelm.netlify.app/install.sh | bash\033[0m\n'
 fi
-[ "$SKIP_INSTALL" -eq 0 ] && printf '\033[32m  Local CLI: restart gh copilot to load the new extension; run /helm to show the QR.\033[0m\n'
+[ "$SKIP_INSTALL" -eq 0 ] && printf '\033[32m  Local CLI: restart copilot to load the new extension; run /helm to show the QR.\033[0m\n'
