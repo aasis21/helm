@@ -7,6 +7,33 @@ switch modes — all from your phone.
 > **Try it now (no install):** **<https://usehelm.netlify.app>** — open on your phone,
 > scan the pairing QR your terminal prints (or paste it), and you're bound to the session.
 
+### Install the extension on your laptop
+
+One line. Downloads the prebuilt extension into `~/.copilot/extensions/helm/` (where
+Copilot CLI auto-discovers it), pre-wired to the hosted relay — no clone, no Node build:
+
+```powershell
+# Windows (PowerShell)
+irm https://usehelm.netlify.app/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://usehelm.netlify.app/install.sh | bash
+```
+
+Then start `gh copilot` in any repo, open **<https://usehelm.netlify.app>** on your phone,
+scan the QR (or run `/helm-pair` to re-show it), and approve/deny from anywhere.
+
+- **Zero-config** — uses the creator's hosted relay (a client-safe publishable key + RLS +
+  end-to-end AES-256-GCM; Supabase only ever sees ciphertext).
+- **Run your own relay** — installer flags let you point at your own Supabase project:
+  `... | iex` becomes
+  `& ([scriptblock]::Create((irm https://usehelm.netlify.app/install.ps1))) -SupabaseUrl <url> -SupabaseKey <key>`
+  on Windows, or `SUPABASE_URL=<url> SUPABASE_KEY=<key> bash -c "$(curl -fsSL https://usehelm.netlify.app/install.sh)"` on Unix.
+  Prefer building from source? Use [`setup.ps1` / `setup.sh`](docs/setup.md).
+- **Uninstall** — delete `~/.copilot/extensions/helm/`.
+
 > Sibling project to [`aasis21/vox`](https://github.com/aasis21/vox),
 > [`aasis21/anya`](https://github.com/aasis21/anya), and
 > [`aasis21/engram`](https://github.com/aasis21/engram).
@@ -87,16 +114,18 @@ See [`docs/setup.md`](docs/setup.md) for the full developer guide.
 
 ## Status
 
-**v1 vertical slice built and verified over the in-process transport.** The shared
-contracts (E2E crypto, pairing handshake, message protocol, pluggable transport), the
-CLI extension (`joinSession`, native permission relay, prompt injection, real
-`session.rpc.mode.set` mode switching, lifecycle), its local harness, and the
-React/Capacitor mobile app (pairing, live stream, approval cards, prompt composer, mode
-selector, session-ended) all build and pass their checks against `LocalTransport`.
+**v1 built end-to-end, with a live hosted relay and web app.** The shared contracts (E2E
+crypto, pairing handshake, message protocol, pluggable transport), the CLI extension
+(`joinSession`, native permission relay, prompt injection, real `session.rpc.mode.set` mode
+switching, on-device approval notifications, lifecycle), its local harness, and the
+React/Capacitor app (pairing, live stream, approval cards, prompt composer, mode selector,
+session-ended) all build and pass their checks. A real Supabase relay (RLS-gated Broadcast)
+is provisioned and the app is deployed at **[usehelm.netlify.app](https://usehelm.netlify.app)**
+with one-line installers for the laptop extension.
 
-**Remaining (user-gated):** stand up a fresh Supabase project + RLS and flip
-`HELM_TRANSPORT=supabase` for real cross-device pairing, then a real-device pass against a
-live `gh copilot` session. See the phased plan in the session artifacts.
+**Remaining:** a full real-device pass (physical phone ↔ laptop over the live relay), plus
+hardening follow-ups (relay rate-limiting, replay sequence numbers). See the phased plan in
+the session artifacts.
 
 ## License
 

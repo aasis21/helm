@@ -7,6 +7,9 @@ dist/
 extension/dist/
 mobile/dist/
 
+# deploy-time artifact: prebuilt extension bundle copied into public/ for hosting
+mobile/public/extension.mjs
+
 # env & secrets
 .env
 .env.local
