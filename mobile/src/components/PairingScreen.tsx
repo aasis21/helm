@@ -4,11 +4,12 @@ import { Capacitor } from '@capacitor/core';
 import { WebQrScanner } from './WebQrScanner';
 
 interface PairingScreenProps {
-  demoQr: string | null;
+  demoQr?: string | null;
   error: string | null;
   onError(error: string | null): void;
   onPair(raw: string): Promise<void>;
   onStartDemo(): Promise<void>;
+  onCancel?: () => void;
 }
 
 interface ScannerApi {
@@ -18,11 +19,12 @@ interface ScannerApi {
 }
 
 export function PairingScreen({
-  demoQr,
+  demoQr = null,
   error,
   onError,
   onPair,
   onStartDemo,
+  onCancel,
 }: PairingScreenProps): JSX.Element {
   const [manual, setManual] = useState('');
   const [busy, setBusy] = useState(false);
@@ -95,6 +97,11 @@ export function PairingScreen({
       </section>
 
       <section className="pair-card">
+        {onCancel ? (
+          <button className="pair-back" type="button" onClick={onCancel}>
+            ← Back to sessions
+          </button>
+        ) : null}
         <h2>Pair phone</h2>
         <button className="primary-action" type="button" disabled={busy} onClick={scanQr}>
           Scan QR

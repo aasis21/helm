@@ -3,7 +3,6 @@ import {
   SecureChannel,
   _resetLocalBus,
   approvalRequest,
-  assistantDelta,
   assistantMessage,
   buildPairingPayload,
   createLocalTransport,
@@ -19,11 +18,12 @@ import {
   waitForPeer,
 } from '@aasis21/helm-shared';
 import type { ApprovalDecision, ModeChange, PromptMessage } from '@aasis21/helm-shared';
-import { pairFromQr } from './helmClient';
+import { pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
 
 export interface DemoSession {
   client: HelmClient;
+  channelId: string;
   pairingJson: string;
   stop(): Promise<void>;
 }
@@ -43,7 +43,7 @@ export async function startDemoSession(): Promise<DemoSession> {
   // in-memory LocalTransport bus as the simulated laptop, regardless of the build's
   // VITE_HELM_TRANSPORT (which may be `supabase` for real pairing).
   const phoneTransport = createLocalTransport({ channelId });
-  const client = await pairFromQr(JSON.stringify(pairingPayload), { transport: phoneTransport });
+  const { client } = await pairSession(JSON.stringify(pairingPayload), { transport: phoneTransport });
   const { key: laptopKey } = await laptopPeer;
   const extension = new SecureChannel({
     transport: laptopTransport,
@@ -80,10 +80,29 @@ export async function startDemoSession(): Promise<DemoSession> {
   const heartbeatTimer = window.setInterval(() => void extension.send(heartbeat()), 2_500);
   push(100, () => extension.send(sessionStart(channelId, 'demo-session', 'C:\\Users\\akash\\helm')));
   push(450, () => extension.send(logLine('info', 'Encrypted LocalTransport linked; relay sees envelopes only.')));
-  push(900, () => extension.send(assistantMessage('I am watching the live gh copilot session.', 'demo-1')));
-  push(1_500, () => extension.send(assistantDelta(' Tool calls and token deltas now appear on your phone.', 'demo-1')));
-  push(2_200, () => extension.send(toolStart('tool-1', 'powershell', { command: 'npm run build -w @aasis21/helm-mobile' })));
-  push(3_200, () =>
+  push(900, () =>
+    extension.send(
+      assistantMessage(
+        "Hi — I'm your live `gh copilot` session, mirrored to your phone. Let me check the mobile build.",
+        'demo-1',
+      ),
+    ),
+  );
+  push(1_700, () => extension.send(toolStart('tool-1', 'powershell', { command: 'npm run build -w @aasis21/helm-mobile' })));
+  push(3_400, () =>
+    extension.send(toolComplete('tool-1', 'powershell', true, 'vite build ✓  104 modules transformed · dist/ ready in 1.21s')),
+  );
+  push(3_900, () =>
+    extension.send(
+      assistantMessage(
+        "Build is green. Here's the gist of what changed:\n\n- Ported the **Anya** chat skin into Helm\n- Tool calls now render **inline**, collapsed by default\n- User prompts sit on the right, like a real chat\n\n```ts\nexport const shipped = true;\n```",
+        'demo-2',
+      ),
+    ),
+  );
+  push(5_400, () => extension.send(toolStart('tool-2', 'view', { path: 'mobile/src/App.tsx' })));
+  push(6_600, () => extension.send(toolComplete('tool-2', 'view', true, 'read 204 lines')));
+  push(7_200, () =>
     extension.send(
       approvalRequest('approval-1', 'powershell', { command: 'gh copilot suggest "fix failing test"' }, [
         { id: 'allow-once', label: 'Allow once' },
@@ -92,10 +111,11 @@ export async function startDemoSession(): Promise<DemoSession> {
       ]),
     ),
   );
-  push(60_000, () => extension.send(sessionEnd('Demo script finished.')));
+  push(120_000, () => extension.send(sessionEnd('Demo script finished.')));
 
   return {
     client,
+    channelId,
     pairingJson: JSON.stringify(pairingPayload),
     async stop() {
       window.clearInterval(heartbeatTimer);

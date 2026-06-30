@@ -10,7 +10,6 @@ import {
   sayHello,
 } from '@aasis21/helm-shared';
 import type { InnerMessage, LogicalEvent, Transport } from '@aasis21/helm-shared';
-import { loadStoredPairing, saveStoredPairing } from './storage';
 import type { StoredPairing } from './storage';
 
 export interface HelmClient {
@@ -29,10 +28,15 @@ const ALL_EVENTS: LogicalEvent[] = [
   EVENTS.CONTROL,
 ];
 
-export async function pairFromQr(
+/**
+ * Pair with a freshly-scanned laptop QR. Returns a live client *and* the
+ * StoredPairing material so the caller can persist it in the session list.
+ * Does not write to storage itself.
+ */
+export async function pairSession(
   raw: string,
   opts?: { transport?: Transport },
-): Promise<HelmClient> {
+): Promise<{ client: HelmClient; pairing: StoredPairing }> {
   const { channelId, publicKeyB64 } = parsePairingPayload(raw);
   const phoneKeys = await generateKeyPair();
   const deviceId = getStableDeviceId();
@@ -54,14 +58,15 @@ export async function pairFromQr(
     deviceId,
     savedAt: Date.now(),
   };
-  await saveStoredPairing(pairing);
-  return createClientFromMaterial({ channelId, key, deviceId, transport });
+  const client = await createClientFromMaterial({ channelId, key, deviceId, transport });
+  return { client, pairing };
 }
 
-export async function restorePairing(): Promise<HelmClient | null> {
-  const pairing = await loadStoredPairing();
-  if (!pairing) return null;
-  if (!pairing.publicKeyB64) return null;
+/** Reconnect to a previously-joined session from its stored ECDH material. */
+export async function connectSession(
+  pairing: StoredPairing,
+  opts?: { transport?: Transport },
+): Promise<HelmClient> {
   const privateKey = await crypto.subtle.importKey(
     'jwk',
     pairing.privateKeyJwk,
@@ -69,7 +74,7 @@ export async function restorePairing(): Promise<HelmClient | null> {
     true,
     ['deriveBits'],
   );
-  const transport = createTransport(pairing.channelId);
+  const transport = opts?.transport ?? createTransport(pairing.channelId);
   const { key } = await sayHello({
     transport,
     keyPair: { privateKey, publicKeyB64: pairing.publicKeyB64 },

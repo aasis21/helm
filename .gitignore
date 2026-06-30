@@ -7,6 +7,11 @@ dist/
 extension/dist/
 mobile/dist/
 
+# playwright e2e artifacts
+test-results/
+playwright-report/
+**/.playwright/
+
 # deploy-time artifact: prebuilt extension bundle copied into public/ for hosting
 mobile/public/extension.mjs
 
