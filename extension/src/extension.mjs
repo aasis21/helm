@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import QRCode from "qrcode";
+import { createClient } from "@supabase/supabase-js";
 import { joinSession } from "@github/copilot-sdk/extension";
 import {
   SecureChannel,
@@ -113,10 +114,19 @@ function createTransport({ channelId }) {
   const transportName = process.env.HELM_TRANSPORT || "local";
   if (transportName === "local") return createLocalTransport({ channelId });
 
-  // TODO(phase2): construct the real Supabase client here once relay transport
-  // ownership lands. Keep secrets in env vars; never embed credentials in code.
-  return createSupabaseTransport({
-    client: null,
-    channelId,
+  const url = process.env.SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    throw new Error(
+      "Helm: HELM_TRANSPORT=supabase requires SUPABASE_URL and SUPABASE_ANON_KEY",
+    );
+  }
+  const client = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
+  // Helm uses *private* broadcast channels, authorized by RLS on realtime.messages
+  // (see supabase/migrations). The anon key is the realtime access token; without
+  // setAuth + the RLS policies applied, channel joins are denied.
+  client.realtime.setAuth(anonKey);
+  return createSupabaseTransport({ client, channelId });
 }

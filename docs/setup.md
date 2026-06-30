@@ -65,15 +65,21 @@ sense for same-machine tests; cross-device pairing needs the relay.
 1. Create a fresh Supabase project. Configure its MCP like `kirana360` does
    (`https://mcp.supabase.com/mcp?project_ref=<ref>` in `mcp/mcp-config.json`).
 2. Enable **Realtime Authorization** and add RLS policies on `realtime.messages` so
-   only authorized clients may join `private:helm:*` channels (see
-   [`security.md`](./security.md)).
+   only authorized clients may join `private:helm:*` channels. This is stored as code:
+   apply [`supabase/migrations/`](../supabase/migrations) to the project (via the Supabase
+   MCP, the Supabase CLI `supabase db push`, or by pasting the SQL into the dashboard SQL
+   editor). Channels are opened with `config.private = true`, so **joins are denied until
+   this migration is applied** (see [`security.md`](./security.md) and
+   [`supabase/README.md`](../supabase/README.md)).
 3. Provide credentials via env (never commit secrets):
    - extension: `SUPABASE_URL`, `SUPABASE_ANON_KEY`
    - mobile: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
    - `HELM_TRANSPORT=supabase`
-4. The caller constructs a `@supabase/supabase-js` client and passes it to
-   `createSupabaseTransport({ client, channelId })` (the `shared/` package stays
-   dependency-free by injecting the client).
+4. The caller constructs a `@supabase/supabase-js` client, calls
+   `client.realtime.setAuth(anonKey)` (the anon key is the Realtime access token that RLS
+   authorizes), and passes it to `createSupabaseTransport({ client, channelId })` (the
+   `shared/` package stays dependency-free by injecting the client). The extension does
+   this from env automatically when `HELM_TRANSPORT=supabase`.
 
 > **Resolved (p4):** `SupabaseTransport` registers a single catch-all broadcast listener
 > before `subscribe()` and dispatches internally, so subscriptions added after `connect()`

@@ -3,7 +3,10 @@
 //
 // Required Supabase setup: enable Realtime Authorization for private channels and add RLS
 // policies on `realtime.messages` that only allow authorized Helm clients to join
-// `private:helm:*` channels. The relay remains untrusted and only carries ciphertext.
+// `private:helm:*` channels. Channels are created with `config.private = true`, so joins
+// are denied until those policies exist — apply
+// `supabase/migrations/*_helm_realtime_broadcast_rls.sql`. The relay remains untrusted and
+// only carries ciphertext.
 //
 // Subscribe-order independence: a SINGLE catch-all broadcast listener is registered at
 // channel-creation time (before channel.subscribe()), and transport.subscribe() only
@@ -32,7 +35,7 @@ export function createSupabaseTransport({ client, channelId } = {}) {
 
   const name = `private:helm:${channelId}`;
   const channel = client.channel(name, {
-    config: { broadcast: { self: false, ack: true } },
+    config: { private: true, broadcast: { self: false, ack: true } },
   });
 
   let closed = false;

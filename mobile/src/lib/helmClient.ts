@@ -109,7 +109,11 @@ function createTransport(channelId: string): Transport {
     if (!url || !anonKey) {
       throw new Error('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before using Supabase transport.');
     }
-    return createSupabaseTransport({ client: createClient(url, anonKey), channelId });
+    const client = createClient(url, anonKey);
+    // Private channels authorize against RLS on realtime.messages; the anon key is the
+    // realtime access token. Apply supabase/migrations first or joins are denied.
+    client.realtime.setAuth(anonKey);
+    return createSupabaseTransport({ client, channelId });
   }
   return createLocalTransport({ channelId });
 }

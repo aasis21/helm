@@ -77,7 +77,7 @@ test("uses the expected private Helm channel name", () => {
 
   assert.equal(client.channels[0].name, "private:helm:abc123");
   assert.deepEqual(client.channels[0].opts, {
-    config: { broadcast: { self: false, ack: true } },
+    config: { private: true, broadcast: { self: false, ack: true } },
   });
 });
 
