@@ -33,7 +33,7 @@ const DEFAULT_MODE = MODES[0] as SessionMode;
 
 export interface TranscriptItem {
   id: string;
-  role: 'assistant' | 'log';
+  role: 'assistant' | 'user' | 'log';
   content: string;
   level?: LogLine['level'];
   ts: number;
@@ -67,6 +67,7 @@ type Action =
   | { type: 'ended' }
   | { type: 'dismiss-approval'; requestId: string }
   | { type: 'mode'; mode: SessionMode }
+  | { type: 'local-user'; text: string; ts: number }
   | { type: 'message'; message: InnerMessage };
 
 const initialState: AppState = {
@@ -156,11 +157,9 @@ export default function App(): JSX.Element {
 
   const handlePrompt = useCallback(
     async (text: string): Promise<void> => {
+      // Optimistically render the prompt as a user bubble, then ship it to the laptop.
+      dispatch({ type: 'local-user', text, ts: Date.now() });
       await client?.send(prompt(text));
-      dispatch({
-        type: 'message',
-        message: { kind: KIND.LOG, level: 'info', message: `You sent: ${text}`, ts: Date.now() },
-      });
     },
     [client],
   );
@@ -216,6 +215,19 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, approvals: state.approvals.filter((item) => item.requestId !== action.requestId) };
     case 'mode':
       return { ...state, mode: action.mode };
+    case 'local-user':
+      return {
+        ...state,
+        transcript: [
+          ...state.transcript,
+          {
+            id: `user-${action.ts}-${Math.random().toString(36).slice(2, 7)}`,
+            role: 'user',
+            content: action.text,
+            ts: action.ts,
+          },
+        ].slice(-80),
+      };
     case 'message':
       return reduceMessage(state, action.message);
     default:

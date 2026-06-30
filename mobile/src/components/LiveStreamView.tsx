@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
 import type { AppState } from '../App';
 import type { SessionMode } from '@aasis21/helm-shared';
 import { ApprovalCard } from './ApprovalCard';
+import { ChatTranscript } from './ChatTranscript';
 import { ModeSelector } from './ModeSelector';
 import { PromptComposer } from './PromptComposer';
 
@@ -22,12 +22,6 @@ export function LiveStreamView({
   onPrompt,
   onRePair,
 }: LiveStreamViewProps): JSX.Element {
-  const endRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [state.transcript.length, state.tools.length, state.approvals.length]);
-
   const heartbeatAge = state.lastHeartbeat ? Math.max(0, Math.round((Date.now() - state.lastHeartbeat) / 1000)) : null;
 
   return (
@@ -60,19 +54,7 @@ export function LiveStreamView({
             <span>Transcript</span>
             <ModeSelector mode={state.mode} onChange={onModeChange} />
           </div>
-          <div className="transcript-list" aria-live="polite">
-            {state.transcript.length === 0 ? (
-              <p className="empty-state">Waiting for encrypted stream messages…</p>
-            ) : (
-              state.transcript.map((item) => (
-                <article key={item.id} className={`bubble ${item.role} ${item.level ?? ''}`}>
-                  <span className="stamp">{formatTime(item.ts)}</span>
-                  <p>{item.content}</p>
-                </article>
-              ))
-            )}
-            <div ref={endRef} />
-          </div>
+          <ChatTranscript items={state.transcript} streaming={state.connected && !state.sessionEnded} />
         </div>
 
         <aside className="side-rail">
@@ -102,12 +84,4 @@ export function LiveStreamView({
       <PromptComposer disabled={state.sessionEnded} onPrompt={onPrompt} />
     </main>
   );
-}
-
-function formatTime(ts: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(ts);
 }
