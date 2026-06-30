@@ -10,10 +10,12 @@ import {
   logLine,
   approvalRequest,
   sessionStart,
+  sessionMeta,
   sessionEnd,
   heartbeat,
   modeChange,
 } from "@aasis21/helm-shared";
+import { readSummary } from "./store.mjs";
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
 const DEFAULT_HEARTBEAT_MS = 15_000;
@@ -92,6 +94,9 @@ export async function attachRelay({
 
   const sessionId = session.sessionId ?? session.id ?? "unknown-session";
   const cwd = session.cwd ?? session.workingDirectory ?? process.cwd();
+  // CLI chat title (summary). Often empty until the CLI derives one, so it is also
+  // refreshed on every heartbeat and re-sent (as session_meta) when it changes.
+  let lastTitle = await fetchTitle(session);
   const logger = (message, options = {}) => logToSession(session, message, options);
   const approvals =
     permissionRelay ??
@@ -107,9 +112,18 @@ export async function attachRelay({
     }
   };
 
-  await sendSafe(sessionStart(channelId ?? channel.transport?.channelId, sessionId, cwd));
+  await sendSafe(sessionStart(channelId ?? channel.transport?.channelId, sessionId, cwd, lastTitle));
   const heartbeatTimer = setInterval(() => {
-    void sendSafe(heartbeat());
+    void (async () => {
+      await sendSafe(heartbeat());
+      // The CLI keeps refining the chat title (summary) as the conversation grows; push the
+      // latest to the phone whenever it changes so the header tracks the terminal.
+      const title = await fetchTitle(session);
+      if (title && title !== lastTitle) {
+        lastTitle = title;
+        await sendSafe(sessionMeta(title));
+      }
+    })();
   }, heartbeatMs);
   heartbeatTimer.unref?.();
 
@@ -273,6 +287,20 @@ function previewToolResult(data = {}) {
 function approvalTimeoutFromEnv() {
   const raw = Number.parseInt(process.env.HELM_APPROVAL_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_APPROVAL_TIMEOUT_MS;
+}
+
+// Resolve the CLI "chat title" (summary) for a session. Prefer the live metadata RPC when the
+// host exposes it; otherwise read the CLI's own session store (the same source the session
+// picker uses). Best-effort: returns "" on any failure so the phone falls back to the cwd name.
+async function fetchTitle(session) {
+  try {
+    const snap = await session?.rpc?.metadata?.snapshot?.();
+    const live = (snap && (snap.summary || snap.initialName)) || "";
+    if (live) return live;
+  } catch {
+    // Metadata RPC is experimental/absent — fall through to the on-disk store.
+  }
+  return readSummary(session?.sessionId ?? session?.id);
 }
 
 function logToSession(session, message, options = {}) {

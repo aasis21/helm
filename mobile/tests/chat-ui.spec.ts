@@ -49,6 +49,29 @@ test.describe('Helm chat UI v2', () => {
     expect(overflow).toBe(0);
   });
 
+  test('reading history is not yanked to the bottom when new content streams in', async ({ page }) => {
+    // Shrink the viewport so the demo transcript overflows and the thread truly scrolls.
+    await page.setViewportSize({ width: 412, height: 420 });
+    // Let the demo stream enough that the thread is scrollable.
+    await expect(page.getByText('Build is green')).toBeVisible({ timeout: 15_000 });
+
+    const scroller = page.locator('.thread-scroll');
+    // Park the reader at the top, as if scrolled up to read earlier messages.
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
+    const max = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
+    expect(max).toBeGreaterThan(50); // sanity: there is real history above the fold
+
+    // The demo pushes a second tool card (~5.4s) after we scrolled up.
+    await expect(page.locator('.tc-head')).toHaveCount(2, { timeout: 15_000 });
+
+    // We must still be near the top — a Live/Quiet flip or new content must not pull us down.
+    const top = await scroller.evaluate((el) => el.scrollTop);
+    expect(top).toBeLessThan(40);
+  });
+
   test('session drawer opens and lists the joined session', async ({ page }) => {
     await page.locator('.drawer-btn').click();
     await expect(page.locator('.drawer-title')).toHaveText('SESSIONS');

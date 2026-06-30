@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 interface WebQrScannerProps {
   onResult(raw: string): void;
   onCancel(): void;
+  /** `overlay` (default) is a full-screen modal; `inline` embeds the live scanner in a page. */
+  variant?: 'overlay' | 'inline';
 }
 
 type DetectFrame = (
@@ -60,7 +62,7 @@ async function makeDetector(): Promise<DetectFrame> {
  * Decodes entirely on-device — frames never leave the page. Calls `onResult` with the raw
  * payload string (same shape the native scanner and paste box produce) on the first hit.
  */
-export function WebQrScanner({ onResult, onCancel }: WebQrScannerProps): JSX.Element {
+export function WebQrScanner({ onResult, onCancel, variant = 'overlay' }: WebQrScannerProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState('Requesting camera…');
@@ -132,16 +134,23 @@ export function WebQrScanner({ onResult, onCancel }: WebQrScannerProps): JSX.Ele
   }, [onResult]);
 
   return (
-    <div className="scanner-overlay" role="dialog" aria-modal="true" aria-label="Scan pairing QR">
+    <div
+      className={variant === 'inline' ? 'scanner-inline' : 'scanner-overlay'}
+      role={variant === 'overlay' ? 'dialog' : 'group'}
+      aria-modal={variant === 'overlay' ? true : undefined}
+      aria-label="Scan pairing QR"
+    >
       <video ref={videoRef} className="scanner-video" muted playsInline />
       <canvas ref={canvasRef} hidden />
       <div className="scanner-reticle" aria-hidden="true">
         <span className="scanner-line" />
       </div>
       <p className={`scanner-status${fatal ? ' is-error' : ''}`}>{status}</p>
-      <button className="secondary-action scanner-cancel" type="button" onClick={onCancel}>
-        {fatal ? 'Back' : 'Cancel'}
-      </button>
+      {variant === 'overlay' ? (
+        <button className="secondary-action scanner-cancel" type="button" onClick={onCancel}>
+          {fatal ? 'Back' : 'Cancel'}
+        </button>
+      ) : null}
     </div>
   );
 }

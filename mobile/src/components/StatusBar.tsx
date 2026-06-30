@@ -12,6 +12,7 @@ interface StatusBarProps {
   onAddSession(): void;
   onReconnect(): void;
   onRemove(): void;
+  onGoHome(): void;
 }
 
 const STATUS_LABEL: Record<SessionStatus, string> = {
@@ -32,6 +33,7 @@ export function StatusBar({
   onAddSession,
   onReconnect,
   onRemove,
+  onGoHome,
 }: StatusBarProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -63,6 +65,16 @@ export function StatusBar({
           {STATUS_LABEL[status]}
         </span>
       </div>
+
+      <button
+        className="icon-btn home-btn"
+        type="button"
+        onClick={onGoHome}
+        aria-label="Home"
+        title="Home"
+      >
+        ⌂
+      </button>
 
       <div className="bar-menu-wrap" ref={menuRef}>
         <button

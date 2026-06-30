@@ -22,6 +22,7 @@ export const KIND: {
   readonly APPROVAL_REQUEST: "approval.request";
   readonly APPROVAL_DECISION: "approval.decision";
   readonly SESSION_START: "control.session_start";
+  readonly SESSION_META: "control.session_meta";
   readonly SESSION_END: "control.session_end";
   readonly HEARTBEAT: "control.heartbeat";
   readonly MODE: "control.mode";
@@ -94,6 +95,14 @@ export interface SessionStart extends BaseMessage {
   channelId: string;
   sessionId: string;
   cwd?: string;
+  /** CLI chat summary ("title"); may be empty until the CLI derives one. */
+  title?: string;
+}
+export interface SessionMeta extends BaseMessage {
+  kind: "control.session_meta";
+  /** Latest CLI chat summary ("title"). */
+  title?: string;
+  cwd?: string;
 }
 export interface SessionEnd extends BaseMessage {
   kind: "control.session_end";
@@ -117,6 +126,7 @@ export type InnerMessage =
   | ApprovalRequest
   | ApprovalDecision
   | SessionStart
+  | SessionMeta
   | SessionEnd
   | Heartbeat
   | ModeChange;
@@ -143,7 +153,13 @@ export function approvalDecision(
   optionId: string,
   raw?: unknown
 ): ApprovalDecision;
-export function sessionStart(channelId: string, sessionId: string, cwd?: string): SessionStart;
+export function sessionStart(
+  channelId: string,
+  sessionId: string,
+  cwd?: string,
+  title?: string
+): SessionStart;
+export function sessionMeta(title?: string, cwd?: string): SessionMeta;
 export function sessionEnd(reason?: string): SessionEnd;
 export function heartbeat(): Heartbeat;
 export function modeChange(mode: SessionMode): ModeChange;

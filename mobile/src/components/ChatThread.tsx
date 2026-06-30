@@ -30,18 +30,41 @@ function formatTime(ts: number): string {
 }
 
 export function ChatThread({ items, streaming = false, emptyHint }: ChatThreadProps): JSX.Element {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  // True while the viewport is parked at (or near) the bottom. When the user has
+  // scrolled up to read history we must not yank them back down — we only stick to
+  // the bottom if they were already there (or just sent a prompt themselves).
+  const pinnedRef = useRef(true);
+
   const last = items[items.length - 1];
   const lastText = last && 'text' in last ? last.text : last?.kind;
+  const lastIsUser = last?.kind === 'user';
 
+  // Track how far the reader is from the bottom of the scrolling ancestor.
   useEffect(() => {
+    const scroller = rootRef.current?.closest('.thread-scroll') as HTMLElement | null;
+    if (!scroller) return undefined;
+    const update = (): void => {
+      const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+      pinnedRef.current = gap < 80;
+    };
+    update();
+    scroller.addEventListener('scroll', update, { passive: true });
+    return () => scroller.removeEventListener('scroll', update);
+  }, []);
+
+  // Auto-scroll only when genuinely new content arrives (never on a Live/Quiet
+  // heartbeat flip), and only if the reader is pinned to the bottom or just sent.
+  useEffect(() => {
+    if (!pinnedRef.current && !lastIsUser) return;
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [items.length, lastText, streaming]);
+  }, [items.length, lastText, lastIsUser]);
 
   const showThinking = streaming && (!last || last.kind === 'user' || last.kind === 'notice');
 
   return (
-    <div className="chat-thread" aria-live="polite">
+    <div className="chat-thread" aria-live="polite" ref={rootRef}>
       {items.length === 0 && !streaming ? (
         <p className="thread-empty">{emptyHint ?? 'Waiting for the encrypted Copilot stream…'}</p>
       ) : null}

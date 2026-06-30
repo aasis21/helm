@@ -53,7 +53,10 @@ interface Runtime {
   stopDemo?: () => Promise<void>;
 }
 
-const IDLE_AFTER_MS = 9_000;
+// A healthy session heartbeats on a fixed interval (the extension beats every 15s —
+// see DEFAULT_HEARTBEAT_MS in extension/src/relay.mjs). Only flag a session "Quiet"
+// once a beat has been missed with slack, so a live session never flickers Live->Quiet.
+const IDLE_AFTER_MS = 20_000;
 
 function basename(path: string | null): string | null {
   if (!path) return null;
@@ -176,8 +179,17 @@ class SessionManager {
 
     if (runtime.timeline.cwd && runtime.timeline.cwd !== runtime.meta.cwd) {
       runtime.meta.cwd = runtime.timeline.cwd;
-      runtime.meta.title = basename(runtime.timeline.cwd) ?? runtime.meta.title;
       if (!runtime.ephemeral) void patchSession(channelId, { cwd: runtime.timeline.cwd });
+    }
+
+    // The real CLI chat title (summary) wins; until it arrives we fall back to the cwd
+    // basename. Persist only the genuine title. Demo (ephemeral) keeps its canned title.
+    if (!runtime.ephemeral) {
+      const nextTitle = titleFor(channelId, runtime.meta.cwd, runtime.timeline.title);
+      if (nextTitle !== runtime.meta.title) {
+        runtime.meta.title = nextTitle;
+        if (runtime.timeline.title) void patchSession(channelId, { title: runtime.timeline.title });
+      }
     }
 
     if (message.kind === KIND.APPROVAL_REQUEST) {

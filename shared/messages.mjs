@@ -32,6 +32,7 @@ export const KIND = Object.freeze({
   APPROVAL_DECISION: "approval.decision",
   // control (both)
   SESSION_START: "control.session_start",
+  SESSION_META: "control.session_meta",
   SESSION_END: "control.session_end",
   HEARTBEAT: "control.heartbeat",
   MODE: "control.mode",
@@ -103,10 +104,22 @@ export const approvalDecision = (requestId, optionId, raw) => ({
 });
 
 // ---- factories (control) ---------------------------------------------------
-export const sessionStart = (channelId, sessionId, cwd) => ({
+export const sessionStart = (channelId, sessionId, cwd, title) => ({
   kind: KIND.SESSION_START,
   channelId,
   sessionId,
+  cwd,
+  title, // CLI chat summary ("title"); may be empty until the CLI derives one
+  ts: now(),
+});
+/**
+ * Lightweight, post-start metadata refresh (ext -> phone). The CLI keeps refining the
+ * chat title (summary) as the conversation grows, so the extension re-sends just the
+ * latest title (and cwd, if it changed) without the lifecycle semantics of session_start.
+ */
+export const sessionMeta = (title, cwd) => ({
+  kind: KIND.SESSION_META,
+  title,
   cwd,
   ts: now(),
 });
@@ -134,6 +147,7 @@ export function eventForKind(kind) {
     case KIND.APPROVAL_DECISION:
       return EVENTS.DECISION;
     case KIND.SESSION_START:
+    case KIND.SESSION_META:
     case KIND.SESSION_END:
     case KIND.HEARTBEAT:
     case KIND.MODE:

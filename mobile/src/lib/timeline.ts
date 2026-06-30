@@ -56,6 +56,8 @@ export interface TimelineState {
   approvals: ApprovalRequest[];
   mode: SessionMode;
   cwd: string | null;
+  /** CLI chat summary ("title"); null until the extension reports one. */
+  title: string | null;
   lastHeartbeat: number | null;
   sessionEnded: boolean;
   endedReason?: string;
@@ -70,6 +72,7 @@ export function emptyTimeline(): TimelineState {
     approvals: [],
     mode: DEFAULT_MODE,
     cwd: null,
+    title: null,
     lastHeartbeat: null,
     sessionEnded: false,
   };
@@ -115,9 +118,16 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
       return {
         ...state,
         cwd: message.cwd ?? state.cwd,
+        title: message.title || state.title,
         lastHeartbeat: Date.now(),
         sessionEnded: false,
         endedReason: undefined,
+      };
+    case KIND.SESSION_META:
+      return {
+        ...state,
+        title: message.title || state.title,
+        cwd: message.cwd ?? state.cwd,
       };
     case KIND.SESSION_END: {
       const reason = message.reason ?? 'Session ended.';

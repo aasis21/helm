@@ -18,6 +18,7 @@ interface SessionScreenProps {
   onAddSession(): void;
   onRemoveSession(channelId: string): void;
   onReconnect(channelId: string): void;
+  onGoHome(): void;
 }
 
 export function SessionScreen({
@@ -31,6 +32,7 @@ export function SessionScreen({
   onAddSession,
   onRemoveSession,
   onReconnect,
+  onGoHome,
 }: SessionScreenProps): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { timeline, status, meta } = active;
@@ -49,6 +51,7 @@ export function SessionScreen({
         onAddSession={onAddSession}
         onReconnect={() => onReconnect(activeId)}
         onRemove={() => onRemoveSession(activeId)}
+        onGoHome={onGoHome}
       />
 
       <main className="thread-scroll">
