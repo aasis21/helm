@@ -40,21 +40,51 @@ const STEPS = [
 
 const CAN_DO = [
   {
-    icon: '💬',
+    icon: 'chat',
     title: 'Talk to it',
     body: 'Send prompts and follow-ups, just like at your keyboard. Replies stream in live.',
   },
   {
-    icon: '✓',
+    icon: 'check',
     title: 'Approve on the spot',
     body: 'When Copilot needs the OK to run something, it asks your phone. Tap yes or no.',
   },
   {
-    icon: '↻',
+    icon: 'refresh',
     title: 'Pick up where you left off',
     body: 'Sessions stay warm and reconnect when you reopen Helm. Juggle several at once.',
   },
 ];
+
+const ICONS: Record<string, JSX.Element> = {
+  chat: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.6L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5Z" />
+    </svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.4 12.2 2.4 2.4 4.8-5.2" />
+    </svg>
+  ),
+  refresh: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1" />
+      <path d="M18.5 3.5V8H14" />
+      <path d="M20.5 12a8.5 8.5 0 0 1-14.4 6.1" />
+      <path d="M5.5 20.5V16H10" />
+    </svg>
+  ),
+};
+
+const LOCK_ICON: JSX.Element = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.4" />
+    <path d="M8 10.5V7.2a4 4 0 0 1 8 0v3.3" />
+    <circle cx="12" cy="15" r="1.1" />
+  </svg>
+);
 
 function detectOs(): OsTab {
   if (typeof navigator === 'undefined') return 'windows';
@@ -127,7 +157,9 @@ export function LandingScreen({
           H
         </div>
         <p className="eyebrow">GitHub Copilot, off the desk</p>
-        <h1>Your Copilot session, now in your hand.</h1>
+        <h1>
+          Your Copilot session, now in your <em className="serif">hand.</em>
+        </h1>
         <p className="lede">
           Helm connects to your live GitHub Copilot session and puts you in control from your
           phone — see what it&apos;s doing, tell it what to do next, and approve its moves.
@@ -187,7 +219,7 @@ export function LandingScreen({
           {CAN_DO.map((item) => (
             <div key={item.title} className="do-card">
               <span className="do-icon" aria-hidden="true">
-                {item.icon}
+                {ICONS[item.icon]}
               </span>
               <div>
                 <strong>{item.title}</strong>
@@ -200,7 +232,7 @@ export function LandingScreen({
 
       <section className="landing-privacy" aria-label="Privacy">
         <span className="privacy-lock" aria-hidden="true">
-          🔒
+          {LOCK_ICON}
         </span>
         <div>
           <strong>Yours alone.</strong>
@@ -214,7 +246,8 @@ export function LandingScreen({
 
       <section className="landing-fin">
         <p className="fin-line">
-          Ship from anywhere.<span className="fin-caret">_</span>
+          Ship from <em className="serif">anywhere.</em>
+          <span className="fin-caret">_</span>
         </p>
         <button
           type="button"
