@@ -12,6 +12,28 @@ import {
 import type { InnerMessage, LogicalEvent, Transport } from '@aasis21/helm-shared';
 import type { StoredPairing } from './storage';
 
+/** A connect that never reaches SUBSCRIBED (a wedged/suspended shared socket) would otherwise hang
+ *  forever, wedging the caller — e.g. reconnect()'s in-flight guard never clears, so the Reconnect
+ *  button no-ops. Bound it so a dead connect fails honestly instead. Under the 30s liveness window. */
+const CONNECT_TIMEOUT_MS = 15_000;
+/** A send whose broadcast never acks (same wedged socket) would hang forever, so the optimistic UI
+ *  (sending bubble, dismissed approval/elicitation, mode toggle, history spinner) never receives its
+ *  failure signal and stays stuck. Bounding it turns a hang into a reject — which every send call
+ *  site already recovers from (setUserFailed / restore* / markHistoryLoading(false) / mode revert). */
+const SEND_TIMEOUT_MS = 10_000;
+
+/** Reject with `message` if `promise` hasn't settled within `ms`; always clears its own timer. The
+ *  underlying op is NOT cancelled, so callers holding a resource (e.g. a transport) clean it up. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 export interface HelmClient {
   channelId: string;
   channel: SecureChannel;
@@ -78,19 +100,32 @@ export async function connectSession(
     ['deriveBits'],
   );
   const transport = opts?.transport ?? createTransport(pairing.channelId);
-  const { key } = await sayHello({
-    transport,
-    keyPair: { privateKey, publicKeyB64: pairing.publicKeyB64 },
-    peerPublicKeyB64: pairing.peerPublicKeyB64,
-    deviceId: pairing.deviceId,
-    waitForAck: false,
-  });
-  return createClientFromMaterial({
-    channelId: pairing.channelId,
-    key,
-    deviceId: pairing.deviceId,
-    transport,
-  });
+  try {
+    return await withTimeout(
+      (async () => {
+        const { key } = await sayHello({
+          transport,
+          keyPair: { privateKey, publicKeyB64: pairing.publicKeyB64 },
+          peerPublicKeyB64: pairing.peerPublicKeyB64,
+          deviceId: pairing.deviceId,
+          waitForAck: false,
+        });
+        return createClientFromMaterial({
+          channelId: pairing.channelId,
+          key,
+          deviceId: pairing.deviceId,
+          transport,
+        });
+      })(),
+      CONNECT_TIMEOUT_MS,
+      'Couldn’t reach your session — the terminal may be closed. Reconnect to try again.',
+    );
+  } catch (err) {
+    // The connect never completed: drop the half-open channel so it can't leak a subscription on the
+    // shared socket, then rethrow so the caller's guard/finally (e.g. reconnect) can recover.
+    void transport.close().catch(() => {});
+    throw err;
+  }
 }
 
 export async function createClientFromMaterial(opts: {
@@ -147,7 +182,12 @@ function wrapChannel(channelId: string, channel: SecureChannel): HelmClient {
   return {
     channelId,
     channel,
-    send: (message) => channel.send(message),
+    send: (message) =>
+      withTimeout(
+        channel.send(message),
+        SEND_TIMEOUT_MS,
+        'Message timed out — the connection may be down. Try again.',
+      ),
     subscribe(handler) {
       const unsubs = ALL_EVENTS.map((event) =>
         channel.onEvent(event, (message) => {

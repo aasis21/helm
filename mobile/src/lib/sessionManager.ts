@@ -1080,6 +1080,9 @@ export class SessionManager {
             runtime.error = 'Couldn’t reach your session — the terminal may be closed. Tap Reconnect to try again.';
             if (runtime.timeline.busy) runtime.timeline = { ...runtime.timeline, busy: false };
             runtime.connectingSince = undefined;
+            // If a hung connect left the in-flight guard set, clear it so Reconnect isn't a no-op.
+            // (connectSession is now timeout-bounded, so this is belt-and-suspenders.)
+            runtime.reconnecting = false;
             this.clearSettle(runtime);
             changed = true;
           }
