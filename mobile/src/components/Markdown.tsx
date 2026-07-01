@@ -1,5 +1,6 @@
-import { Fragment } from 'react';
+import { Fragment, useCallback, useMemo, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
+import '../markdown-code.css';
 
 /**
  * Minimal, dependency-free, XSS-safe Markdown -> React renderer.
@@ -13,6 +14,132 @@ import type { CSSProperties, JSX, ReactNode } from 'react';
 
 const SAFE_URL = /^(https?:|mailto:)/i;
 const INLINE = /(`[^`]+`)|(~~[^~]+~~)|(\*\*[^*]+\*\*)|(!\[[^\]]*\]\([^)]+\))|(\[[^\]]+\]\([^)]+\))|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)/;
+
+const HL_LANGS = new Set([
+  'js', 'jsx', 'ts', 'tsx', 'javascript', 'typescript', 'json', 'py', 'python', 'go', 'golang',
+  'rust', 'rs', 'java', 'c', 'cpp', 'c++', 'cs', 'csharp', 'sh', 'bash', 'shell', 'zsh', 'yaml',
+  'yml', 'php', 'rb', 'ruby', 'kt', 'kotlin', 'swift', 'sql',
+]);
+
+const HASH_COMMENT_LANGS = new Set([
+  'py', 'python', 'sh', 'bash', 'shell', 'zsh', 'yaml', 'yml', 'rb', 'ruby',
+]);
+
+const CODE_KEYWORDS = new Set([
+  'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case',
+  'break', 'continue', 'class', 'extends', 'new', 'this', 'super', 'import', 'export', 'from',
+  'default', 'async', 'await', 'yield', 'typeof', 'instanceof', 'in', 'of', 'try', 'catch', 'finally',
+  'throw', 'void', 'delete', 'static', 'public', 'private', 'protected', 'interface', 'type', 'enum',
+  'implements', 'package', 'func', 'def', 'elif', 'lambda', 'pass', 'with', 'as', 'not', 'and', 'or',
+  'is', 'fn', 'mut', 'use', 'struct', 'impl', 'match', 'pub', 'trait', 'where', 'defer', 'select',
+  'chan', 'range', 'echo', 'then', 'fi', 'done', 'local', 'require', 'module', 'namespace', 'val',
+]);
+
+const CODE_LITERALS = new Set([
+  'true', 'false', 'null', 'undefined', 'None', 'True', 'False', 'nil', 'NaN', 'self',
+]);
+
+// One pass: comment | string | number | identifier. Everything else is emitted verbatim,
+// so the exact source (whitespace, punctuation) is preserved and nothing is injected as HTML.
+const CODE_TOKEN =
+  /(\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*|--[^\n]*)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(0[xX][0-9a-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)|([A-Za-z_$][\w$]*)/g;
+
+function isRealComment(token: string, lang: string): boolean {
+  if (token.startsWith('//') || token.startsWith('/*')) return true;
+  if (token.startsWith('#')) return HASH_COMMENT_LANGS.has(lang);
+  if (token.startsWith('--')) return lang === 'sql';
+  return false;
+}
+
+/** Zero-dependency, XSS-safe highlighter: tokenizes into React <span>s, never HTML. */
+function highlightCode(code: string, lang: string): ReactNode {
+  if (!HL_LANGS.has(lang)) return code;
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let n = 0;
+  CODE_TOKEN.lastIndex = 0;
+  for (let m = CODE_TOKEN.exec(code); m !== null; m = CODE_TOKEN.exec(code)) {
+    if (m.index > last) nodes.push(code.slice(last, m.index));
+    const key = `h${n++}`;
+    const [full, comment, str, num, word] = m;
+    if (comment) {
+      nodes.push(
+        isRealComment(comment, lang) ? (
+          <span key={key} className="tok-comment">
+            {comment}
+          </span>
+        ) : (
+          comment
+        ),
+      );
+    } else if (str) {
+      nodes.push(
+        <span key={key} className="tok-string">
+          {str}
+        </span>,
+      );
+    } else if (num) {
+      nodes.push(
+        <span key={key} className="tok-number">
+          {num}
+        </span>,
+      );
+    } else if (CODE_KEYWORDS.has(word)) {
+      nodes.push(
+        <span key={key} className="tok-keyword">
+          {word}
+        </span>,
+      );
+    } else if (CODE_LITERALS.has(word)) {
+      nodes.push(
+        <span key={key} className="tok-literal">
+          {word}
+        </span>,
+      );
+    } else {
+      nodes.push(word);
+    }
+    last = m.index + full.length;
+  }
+  if (last < code.length) nodes.push(code.slice(last));
+  return nodes;
+}
+
+/** Fenced code block with a language label (#13), Copy button (#12), and highlighting (#14). */
+function CodeBlock({ code, lang }: { code: string; lang: string }): JSX.Element {
+  const [copied, setCopied] = useState(false);
+  const normalizedLang = lang.trim().toLowerCase();
+  const highlighted = useMemo(() => highlightCode(code, normalizedLang), [code, normalizedLang]);
+  const onCopy = useCallback((): void => {
+    const done = navigator.clipboard?.writeText(code);
+    if (!done) return;
+    void done.then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => undefined,
+    );
+  }, [code]);
+  return (
+    <div className="md-code">
+      <div className="md-code-head">
+        <span className="md-code-lang">{lang.trim() || 'code'}</span>
+        <button
+          type="button"
+          className="md-code-copy"
+          onClick={onCopy}
+          aria-label={copied ? 'Code copied' : 'Copy code to clipboard'}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className="md-code-pre">
+        <code>{highlighted}</code>
+      </pre>
+    </div>
+  );
+}
 
 function renderInline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -246,11 +373,7 @@ export function Markdown({ text }: { text: string }): JSX.Element {
         i++;
       }
       i++; // consume closing fence if present
-      blocks.push(
-        <pre key={`b${key++}`}>
-          <code>{body.join('\n')}</code>
-        </pre>,
-      );
+      blocks.push(<CodeBlock key={`b${key++}`} code={body.join('\n')} lang={fence[1] ?? ''} />);
       continue;
     }
 

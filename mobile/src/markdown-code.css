@@ -1,0 +1,84 @@
+/* Fenced code blocks: language label (#13), Copy button (#12), highlighting (#14). */
+.md-code {
+  margin: 8px 0;
+  border: 1px solid var(--bg-rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--code-bg);
+}
+
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  border-bottom: 1px solid var(--bg-rule);
+}
+
+.md-code-lang {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.md-code-copy {
+  flex: none;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg-dim);
+  background: transparent;
+  border: 1px solid var(--bg-rule);
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.md-code-copy:hover,
+.md-code-copy:focus-visible {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Two classes beat `.assistant-bubble pre` so the wrapper owns the border/radius. */
+.md-code .md-code-pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Token colors (GitHub-dark palette, tuned for the blue --code-bg). */
+.md-code .tok-comment {
+  color: #7d8590;
+  font-style: italic;
+}
+.md-code .tok-string {
+  color: #a5d6ff;
+}
+.md-code .tok-number {
+  color: #79c0ff;
+}
+.md-code .tok-keyword {
+  color: #ff7b72;
+}
+.md-code .tok-literal {
+  color: #d2a8ff;
+}
+
+/* Keep inline images (#19) from overflowing the bubble. */
+.assistant-bubble img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
