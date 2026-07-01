@@ -94,6 +94,9 @@ export function SessionScreen({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const confirmDialogRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const approvalStackRef = useRef<HTMLDivElement | null>(null);
+  const prevApprovalCount = useRef(0);
   const { timeline, status, meta } = active;
   const ended = status === 'ended';
   // A turn is in flight whenever the agent reports it's busy (text/reasoning/tool) —
@@ -124,8 +127,41 @@ export function SessionScreen({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [confirmRemoveId]);
 
+  // When a new approval arrives, move focus to the (announced) approvals stack so
+  // screen-reader and keyboard users are taken straight to the safety-critical
+  // Allow/Deny controls instead of silently missing them (#32).
+  useEffect(() => {
+    const count = timeline.approvals.length;
+    if (count > prevApprovalCount.current && count > 0) {
+      approvalStackRef.current?.focus();
+    }
+    prevApprovalCount.current = count;
+  }, [timeline.approvals.length]);
+
+  // Keep the composer above the iOS/Android soft keyboard. The session surface is
+  // position:fixed, so the layout viewport doesn't shrink when the keyboard opens and
+  // the composer gets hidden behind it. Track the visual viewport and lift the surface
+  // by the keyboard's height via the --helm-kb custom property (#59).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const apply = (): void => {
+      const el = rootRef.current;
+      if (!el) return;
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      el.style.setProperty('--helm-kb', `${inset}px`);
+    };
+    apply();
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+    };
+  }, []);
+
   return (
-    <div className="helm-session">
+    <div className="helm-session" ref={rootRef}>
       <StatusBar
         title={meta.title}
         cwd={meta.cwd}
@@ -171,7 +207,18 @@ export function SessionScreen({
           </div>
         ) : null}
 
-        {timeline.approvals.map((req) => {
+        {timeline.approvals.length > 0 ? (
+          <div
+            className="approval-stack"
+            ref={approvalStackRef}
+            role="group"
+            aria-live="assertive"
+            aria-label={`${timeline.approvals.length} action${
+              timeline.approvals.length === 1 ? '' : 's'
+            } need your approval`}
+            tabIndex={-1}
+          >
+            {timeline.approvals.map((req) => {
           const args = describeArgs(req.toolArgs);
           const error = timeline.approvalErrors[req.requestId];
           return (
@@ -229,7 +276,9 @@ export function SessionScreen({
               </div>
             </div>
           );
-        })}
+            })}
+          </div>
+        ) : null}
 
         {timeline.elicitations.map((req) => (
           <ElicitationCard
