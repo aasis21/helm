@@ -12,6 +12,7 @@ import type {
   LogLine,
   ModeChange,
   SessionMode,
+  StateSnapshot,
   ToolComplete,
   ToolStart,
   UserMessageEcho,
@@ -187,6 +188,8 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
       return appendUserEcho(state, message as UserMessageEcho);
     case KIND.HISTORY:
       return mergeHistoryPage(state, message as HistoryMessage);
+    case KIND.STATE_SNAPSHOT:
+      return applyStateSnapshot(state, message as StateSnapshot);
     case KIND.APPROVAL_REQUEST: {
       const req = message as ApprovalRequest;
       return {
@@ -419,6 +422,39 @@ function mergeHistoryPage(state: TimelineState, message: HistoryMessage): Timeli
     historyHasMore: Boolean(message.hasMore),
     historyLoading: false,
   };
+}
+
+/**
+ * Apply a connect-time state snapshot (the extension's answer to our stateRequest). The snapshot is
+ * authoritative for "right now": whether a turn is in flight, the current mode, and the approval /
+ * ask_user prompts still open at the terminal. We MERGE the pending prompts by requestId (never
+ * dropping one we already show) so a phone that joins mid-turn or reconnects immediately reflects
+ * the truth — a live Stop control, the real mode, and any prompt still waiting for an answer —
+ * instead of a stale "Ready" with no pending prompts. A snapshot also counts as a heartbeat.
+ */
+function applyStateSnapshot(state: TimelineState, snap: StateSnapshot): TimelineState {
+  return {
+    ...state,
+    busy: Boolean(snap.busy),
+    mode: snap.mode ?? state.mode,
+    approvals: mergePendingById(state.approvals, snap.approvals ?? []),
+    elicitations: mergePendingById(state.elicitations, snap.elicitations ?? []),
+    lastHeartbeat: Date.now(),
+    sessionEnded: false,
+  };
+}
+
+/**
+ * Union two pending-prompt lists by requestId: keep every existing entry (and its order) and
+ * append any from `incoming` not already present. Additive so an in-flight live prompt is never
+ * clobbered by a slightly-later snapshot; a prompt answered while away is dropped later by its
+ * own completion event.
+ */
+function mergePendingById<T extends { requestId: string }>(existing: T[], incoming: T[]): T[] {
+  if (!incoming || incoming.length === 0) return existing;
+  const seen = new Set(existing.map((p) => p.requestId));
+  const additions = incoming.filter((p) => p && p.requestId && !seen.has(p.requestId));
+  return additions.length ? [...existing, ...additions] : existing;
 }
 
 /** A serializable snapshot of the durable parts of a timeline (no transient/live fields). */

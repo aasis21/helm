@@ -1,4 +1,4 @@
-import { KIND, approvalDecision, elicitationResponse, historyRequest, interrupt, modeChange, prompt, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
+import { KIND, approvalDecision, elicitationResponse, historyRequest, interrupt, modeChange, prompt, stateRequest, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
 import type { InnerMessage, SessionMode } from '@aasis21/helm-shared';
 import { connectSession, pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
@@ -146,6 +146,7 @@ class SessionManager {
     this.initStarted = true;
     void ensureNotificationPermission();
     this.startWatchdog();
+    this.installResumeTriggers();
     let stored: StoredSession[] = [];
     try {
       stored = await loadSessions();
@@ -218,7 +219,23 @@ class SessionManager {
     runtime.error = undefined;
     runtime.unsubscribe = client.subscribe((message) => this.onMessage(channelId, message));
     this.emit();
+    // Ask for the current session state (busy/mode + any pending prompts) so a fresh, mid-turn,
+    // or reconnecting join reflects the truth immediately instead of waiting for the next event.
+    this.requestState(channelId);
     this.maybeRequestFirstHistory(channelId, client);
+  }
+
+  /**
+   * Pull a connect-time state snapshot: the extension's authoritative busy/mode plus any approval
+   * or ask_user prompts still open at the terminal. Best-effort — an older extension build that
+   * doesn't answer just leaves us on live events, exactly as before.
+   */
+  private requestState(channelId: string): void {
+    const runtime = this.runtimes.get(channelId);
+    if (!runtime || runtime.ephemeral || !runtime.client) return;
+    void runtime.client.send(stateRequest()).catch(() => {
+      // A failed state request must never break the connection; live events still flow.
+    });
   }
 
   /**
@@ -590,6 +607,38 @@ class SessionManager {
       }
       if (changed) this.emit();
     }, 1_000);
+  }
+
+  /**
+   * Revive connections when the app returns to the foreground or the network comes back. A
+   * backgrounded mobile webview usually has its realtime socket silently dropped, so on resume we
+   * reconnect every dead/stale session and refresh the live state of the healthy ones — the phone
+   * should never come back to a session frozen on stale data. Covers ALL sessions, not just the
+   * active one, so background sessions are current the moment you switch to them.
+   */
+  private handleResume = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const now = Date.now();
+    for (const [channelId, runtime] of this.runtimes) {
+      if (runtime.ephemeral) continue;
+      const beat = runtime.timeline.lastHeartbeat;
+      const stale = beat != null && now - beat > IDLE_AFTER_MS;
+      const revive = !runtime.client || runtime.status === 'error' || stale;
+      if (revive && runtime.status !== 'ended') {
+        void this.reconnect(channelId);
+      } else {
+        this.requestState(channelId);
+      }
+    }
+  };
+
+  /** Wire foreground/online events so a returning user's sessions re-sync automatically. */
+  private installResumeTriggers(): void {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('online', this.handleResume);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleResume);
+    }
   }
 }
 
