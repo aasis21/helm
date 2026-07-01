@@ -10,6 +10,10 @@
     "build": "tsc && vite build",
     "build:web": "npm run build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc -p tsconfig.test.json --noEmit",
+    "coverage": "vitest run --coverage",
     "test:e2e": "npm run build && playwright test",
     "cap:sync": "npx cap sync",
     "cap:add:android": "npx cap add android",
@@ -31,11 +35,17 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.19.0",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
+    "@vitest/coverage-v8": "^3.2.6",
+    "jsdom": "^29.1.1",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.6"
   }
 }

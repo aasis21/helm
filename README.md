@@ -112,7 +112,41 @@ See [`docs/setup.md`](docs/setup.md) for the full developer guide.
 
 ---
 
+## Testing
+
+`npm test` at the root fans out to every workspace. Tests come in two tiers that answer
+**different questions**, so a change is proven where it's cheapest and most reliable:
+
+| Tier | Runner | Lives in | Answers |
+|---|---|---|---|
+| **Contracts + extension** | `node:test` | `shared/**/*.test.mjs`, `extension/**/*.test.mjs` | Is the crypto / pairing / transport / message protocol and the extension relay logic correct? |
+| **Mobile unit + scenario** | **Vitest** + jsdom | `mobile/src/**/*.test.{ts,tsx}` | Is the *logic* right for a given message / timer / edge — fast, deterministic, fully mocked? |
+| **Mobile real-browser e2e** | **Playwright** | `mobile/tests/*.spec.ts` | Does the *real production build* render, scroll, and navigate for a user? |
+
+**What goes where (mobile):**
+- **Vitest = breadth.** The exhaustive scenario matrix — join, resume-dedupe, remove→re-join,
+  network drop→catch-up, state snapshot, approvals, elicitations, streaming, the 20s/30s heartbeat
+  watchdog, persistence-across-restart — drives the **real `SessionManager`** through a mocked
+  transport (`FakeHelmClient`) with fake timers, so no network, crypto, or Supabase is touched. Plus
+  pure-logic (`reduceTimeline`, `sessions`, `transcripts`, `storage`) and React component tests (RTL).
+- **Playwright = depth.** A few *bigger journeys* against `dist/` in a real phone viewport (412×915),
+  driven by the in-app demo simulator: `journey-connect` (Landing→Join→Session navigation),
+  `journey-stream` (a live streaming turn), `journey-session-management` (drawer + leave-confirm +
+  routing), and `journey-smoke` (production boot + layout). It answers what only a real browser can.
+- **Not automated (manual):** the real Supabase relay + real WebCrypto E2E + real cross-device
+  pairing. Vitest mocks the transport; Playwright uses the demo. Neither hits the network.
+
+```sh
+npm test                                   # all workspaces: shared + extension + mobile
+npm test -w @aasis21/helm-mobile           # just the mobile Vitest unit/scenario suite
+npm run coverage -w @aasis21/helm-mobile   # mobile coverage table (report-only, no gate)
+npm run test:e2e -w @aasis21/helm-mobile   # build dist/ + run the Playwright journeys
+```
+
+---
+
 ## Status
+
 
 **v1 built end-to-end, with a live hosted relay and web app.** The shared contracts (E2E
 crypto, pairing handshake, message protocol, pluggable transport), the CLI extension

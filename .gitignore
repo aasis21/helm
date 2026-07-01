@@ -12,6 +12,10 @@ test-results/
 playwright-report/
 **/.playwright/
 
+# vitest coverage output (report-only)
+coverage/
+**/coverage/
+
 # deploy-time artifact: prebuilt extension bundle copied into public/ for hosting
 mobile/public/extension.mjs
 

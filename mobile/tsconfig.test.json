@@ -1,0 +1,15 @@
+{
+  // Type-checks the Vitest suite (excluded from the app build in tsconfig.app.json). Reuses the app's
+  // strict base but loads test globals and relaxes the two rules that fight ergonomic test code.
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "composite": false,
+    "types": ["vitest/globals", "@testing-library/jest-dom", "node"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["src"],
+  "exclude": []
+}
