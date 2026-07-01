@@ -129,6 +129,7 @@ export default function App(): JSX.Element {
       onRemoveSession={(id) => void sessionManager.remove(id)}
       onReconnect={(id) => void sessionManager.reconnect(id)}
       onGoHome={() => setShowLanding(true)}
+      onLoadEarlier={() => void sessionManager.loadEarlierHistory(active.meta.channelId)}
     />
   );
 }

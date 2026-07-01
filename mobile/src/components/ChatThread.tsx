@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
@@ -25,6 +25,12 @@ interface ChatThreadProps {
   offline?: boolean;
   /** Label for the offline banner. */
   offlineLabel?: string;
+  /** Loads the previous page of pre-join history (pull-to-refresh / "Load earlier"). */
+  onLoadEarlier?: () => void;
+  /** True when an older history page can still be fetched. */
+  historyHasMore?: boolean;
+  /** True while an older history page is loading. */
+  historyLoading?: boolean;
 }
 
 const COPILOT_AVATAR: ReactNode = (
@@ -88,7 +94,7 @@ interface MenuState {
   y: number;
 }
 
-export function ChatThread({ items, history = [], streaming = false, emptyHint, onRetry, offline = false, offlineLabel }: ChatThreadProps): JSX.Element {
+export function ChatThread({ items, history = [], streaming = false, emptyHint, onRetry, offline = false, offlineLabel, onLoadEarlier, historyHasMore = false, historyLoading = false }: ChatThreadProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +112,10 @@ export function ChatThread({ items, history = [], streaming = false, emptyHint, 
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [collapsedToolRuns, setCollapsedToolRuns] = useState<Record<string, boolean>>({});
   const [liveText, setLiveText] = useState('');
+  const [pulling, setPulling] = useState(false);
+  const loadAnchorRef = useRef<number | null>(null);
+  const pullStartRef = useRef<number | null>(null);
+  const armedRef = useRef(false);
 
   const last = items[items.length - 1];
   const lastText = last && 'text' in last ? last.text : last?.kind;
@@ -227,6 +237,65 @@ export function ChatThread({ items, history = [], streaming = false, emptyHint, 
     return () => scroller.removeEventListener('scroll', update);
   }, [cancelLongPress]);
 
+  const getScroller = useCallback(
+    (): HTMLElement | null => (rootRef.current?.closest('.thread-scroll') as HTMLElement | null) ?? null,
+    [],
+  );
+
+  const triggerLoadEarlier = useCallback((): void => {
+    if (!onLoadEarlier || !historyHasMore || historyLoading) return;
+    loadAnchorRef.current = getScroller()?.scrollHeight ?? null;
+    onLoadEarlier();
+  }, [onLoadEarlier, historyHasMore, historyLoading, getScroller]);
+
+  // Keep the reader parked on the same message when an older page is prepended.
+  useLayoutEffect(() => {
+    const scroller = getScroller();
+    if (scroller && loadAnchorRef.current !== null) {
+      const delta = scroller.scrollHeight - loadAnchorRef.current;
+      if (delta > 0) scroller.scrollTop += delta;
+      loadAnchorRef.current = null;
+    }
+  }, [history.length, getScroller]);
+
+  useEffect(() => {
+    if (!historyLoading) loadAnchorRef.current = null;
+  }, [historyLoading]);
+
+  // Pull down at the top of the thread to load the previous history page.
+  useEffect(() => {
+    const scroller = getScroller();
+    if (!scroller || !onLoadEarlier) return undefined;
+    const onStart = (event: TouchEvent): void => {
+      const touch = event.touches[0];
+      pullStartRef.current =
+        touch && scroller.scrollTop <= 0 && historyHasMore && !historyLoading ? touch.clientY : null;
+    };
+    const onMove = (event: TouchEvent): void => {
+      const touch = event.touches[0];
+      if (pullStartRef.current === null || !touch) return;
+      const armed = touch.clientY - pullStartRef.current > 64 && scroller.scrollTop <= 0;
+      armedRef.current = armed;
+      setPulling(armed);
+    };
+    const onEnd = (): void => {
+      if (pullStartRef.current !== null && armedRef.current) triggerLoadEarlier();
+      pullStartRef.current = null;
+      armedRef.current = false;
+      setPulling(false);
+    };
+    scroller.addEventListener('touchstart', onStart, { passive: true });
+    scroller.addEventListener('touchmove', onMove, { passive: true });
+    scroller.addEventListener('touchend', onEnd);
+    scroller.addEventListener('touchcancel', onEnd);
+    return () => {
+      scroller.removeEventListener('touchstart', onStart);
+      scroller.removeEventListener('touchmove', onMove);
+      scroller.removeEventListener('touchend', onEnd);
+      scroller.removeEventListener('touchcancel', onEnd);
+    };
+  }, [getScroller, onLoadEarlier, historyHasMore, historyLoading, triggerLoadEarlier]);
+
   // Auto-scroll only when genuinely new content arrives (never on a Live/Quiet
   // heartbeat flip), and only if the reader is pinned to the bottom or just sent.
   useEffect(() => {
@@ -313,6 +382,23 @@ export function ChatThread({ items, history = [], streaming = false, emptyHint, 
             <span className="empty-suggest">Run the tests</span>
             <span className="empty-suggest">Fix the failing build</span>
           </div>
+        </div>
+      ) : null}
+
+      {historyHasMore && onLoadEarlier ? (
+        <div className="thread-load-earlier-row">
+          <button
+            type="button"
+            className="thread-load-earlier"
+            onClick={triggerLoadEarlier}
+            disabled={historyLoading}
+          >
+            {historyLoading
+              ? 'Loading earlier messages…'
+              : pulling
+                ? 'Release to load earlier'
+                : 'Load earlier messages'}
+          </button>
         </div>
       ) : null}
 

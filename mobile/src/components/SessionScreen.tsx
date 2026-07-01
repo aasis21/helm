@@ -147,6 +147,7 @@ interface SessionScreenProps {
   onRemoveSession(channelId: string): void;
   onReconnect(channelId: string): void;
   onGoHome(): void;
+  onLoadEarlier(): void;
 }
 
 export function SessionScreen({
@@ -164,6 +165,7 @@ export function SessionScreen({
   onRemoveSession,
   onReconnect,
   onGoHome,
+  onLoadEarlier,
 }: SessionScreenProps): JSX.Element {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
@@ -290,6 +292,9 @@ export function SessionScreen({
           offline={offline}
           offlineLabel={offlineLabel}
           onRetry={onRetry}
+          onLoadEarlier={onLoadEarlier}
+          historyHasMore={timeline.historyHasMore}
+          historyLoading={timeline.historyLoading}
         />
       </main>
 
