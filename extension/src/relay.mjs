@@ -11,6 +11,8 @@ import {
   activity,
   userMessage,
   approvalRequest,
+  elicitationRequest,
+  elicitationComplete,
   sessionStart,
   sessionMeta,
   sessionEnd,
@@ -21,6 +23,9 @@ import {
 import { readSummary, readHistory } from "./store.mjs";
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
+// ask_user forms take longer to fill in than a one-tap approval, so allow more slack before
+// the fail-safe cancel fires (a cancel is a no-op if the terminal already answered).
+const DEFAULT_ELICITATION_TIMEOUT_MS = 300_000;
 const DEFAULT_HEARTBEAT_MS = 15_000;
 // How long a phone-relayed prompt stays "claimable" so the echoed user.message session
 // event it produces is attributed to the phone (and not re-broadcast as a terminal msg).
@@ -121,6 +126,114 @@ export function createPermissionRelay({
   return { onPermissionRequest, close };
 }
 
+/**
+ * Relays the CLI's `ask_user` / elicitation prompts to the phone and forwards the phone's
+ * answer back into the session — the elicitation analogue of `createPermissionRelay`.
+ *
+ * Unlike permissions (a declarative `onPermissionRequest` hook the SDK calls), elicitation is
+ * event-driven: the runtime emits `elicitation.requested`, and any consumer may answer via
+ * `session.rpc.respondToElicitation(requestId, result)`. Because this is dual-owned with the
+ * live terminal, the phone is an *additional* responder — whoever answers first wins, and the
+ * runtime's `elicitation.completed` event tells the other side to dismiss its UI.
+ *
+ *  - `offer(data)`     — call on an `elicitation.requested` event: relay the form to the phone.
+ *  - `complete(data)`  — call on an `elicitation.completed` event: dismiss the phone's form.
+ *  - internally listens for the phone's ELICITATION_RESPONSE and calls respondToElicitation.
+ *
+ * A per-request timeout fails safe with `{ action: "cancel" }` so a walked-away phone can never
+ * hang the agent (the cancel is a no-op when the terminal already answered).
+ */
+export function createElicitationRelay({
+  session,
+  channel,
+  elicitationTimeoutMs = elicitationTimeoutFromEnv(),
+  logger = () => {},
+} = {}) {
+  if (!channel) throw new Error("helm relay: channel is required");
+  const pending = new Map();
+  const respond = pickElicitationResponder(session, logger);
+  let releaseInterest = () => {};
+  // Tell the runtime we want `elicitation.requested` routed to this consumer. Best-effort and
+  // reversible: some hosts auto-observe in-process extensions, so a missing API isn't fatal.
+  void registerElicitationInterest(session, logger).then((release) => {
+    releaseInterest = release;
+  });
+
+  const unsubscribe = channel.onEvent(EVENTS.ELICITATION_RESPONSE, (msg) => {
+    if (msg?.kind !== KIND.ELICITATION_RESPONSE) return;
+    const entry = pending.get(msg.requestId);
+    if (!entry) return; // already resolved at the terminal, or timed out
+    clearPending(msg.requestId);
+    if (!respond) {
+      logger(
+        "Helm: this CLI build can't accept remote ask_user answers (respondToElicitation unavailable).",
+        { level: "warning", ephemeral: false },
+      );
+      return;
+    }
+    const accepted = respond(msg.requestId, elicitResultFromResponse(msg));
+    if (accepted === false) {
+      logger("Helm: ask_user was already answered before the phone's reply arrived.", {
+        level: "info",
+      });
+    }
+  });
+
+  async function offer(data = {}) {
+    const requestId = data.requestId;
+    if (!requestId) return;
+    await channel.send(
+      elicitationRequest(
+        requestId,
+        data.message ?? "",
+        data.mode ?? "form",
+        data.requestedSchema,
+        data.toolCallId,
+        data.url,
+      ),
+    );
+    const timer = setTimeout(() => {
+      pending.delete(requestId);
+      // Fail safe so a walked-away phone can't hang the agent; no-op if already answered.
+      respond?.(requestId, { action: "cancel" });
+      void channel.send(elicitationComplete(requestId, "cancel")).catch(() => {});
+      logger(`Helm: ask_user prompt unanswered after ${elicitationTimeoutMs}ms; cancelled.`, {
+        level: "warning",
+        ephemeral: false,
+      });
+    }, elicitationTimeoutMs);
+    timer.unref?.();
+    pending.set(requestId, { timer });
+  }
+
+  async function complete(data = {}) {
+    const requestId = data.requestId;
+    if (!requestId) return;
+    clearPending(requestId);
+    // Dismiss any open form on the phone (the request was answered here or at the terminal).
+    await channel.send(elicitationComplete(requestId, data.action));
+  }
+
+  function clearPending(requestId) {
+    const entry = pending.get(requestId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    pending.delete(requestId);
+  }
+
+  function close() {
+    unsubscribe?.();
+    for (const requestId of [...pending.keys()]) clearPending(requestId);
+    try {
+      releaseInterest?.();
+    } catch {
+      // Releasing interest must never break shutdown.
+    }
+  }
+
+  return { offer, complete, close };
+}
+
 export async function attachRelay({
   session,
   channel,
@@ -143,6 +256,7 @@ export async function attachRelay({
   const approvals =
     permissionRelay ??
     createPermissionRelay({ channel, approvalTimeoutMs, logger });
+  const elicitations = createElicitationRelay({ session, channel, logger });
   const unsubscribers = [];
   let stopped = false;
   // Correlates phone-relayed prompts with their echoed user.message events so the relay
@@ -174,7 +288,7 @@ export async function attachRelay({
 
   if (typeof session.on === "function") {
     unsubscribers.push(
-      session.on((event) => void handleSessionEvent(event, sendSafe, promptOrigin)),
+      session.on((event) => void handleSessionEvent(event, sendSafe, promptOrigin, elicitations)),
     );
   }
 
@@ -217,6 +331,7 @@ export async function attachRelay({
     clearInterval(heartbeatTimer);
     for (const unsubscribe of unsubscribers.splice(0)) unsubscribe?.();
     approvals.close?.();
+    elicitations.close?.();
     // On a re-pair we keep the shared transport open for the next phone, so we neither announce a
     // session end (the new phone uses a different key and couldn't read it) nor close the channel.
     if (closeTransport) {
@@ -228,7 +343,7 @@ export async function attachRelay({
   return { stop, onPermissionRequest: approvals.onPermissionRequest };
 }
 
-async function handleSessionEvent(event, sendSafe, promptOrigin) {
+async function handleSessionEvent(event, sendSafe, promptOrigin, elicitations) {
   if (!event?.type) return;
   const data = event.data ?? {};
   switch (event.type) {
@@ -240,6 +355,15 @@ async function handleSessionEvent(event, sendSafe, promptOrigin) {
     case "assistant.idle":
       // The agent's processing loop went idle: the turn is over, nothing left to abort.
       await sendSafe(activity(false));
+      break;
+    case "elicitation.requested":
+      // The agent asked a question (ask_user). Relay the form so the phone can answer it,
+      // mirroring how native permission prompts are relayed.
+      if (elicitations) await elicitations.offer(data);
+      break;
+    case "elicitation.completed":
+      // Answered here, at the terminal, or on another device — dismiss the phone's form.
+      if (elicitations) await elicitations.complete(data);
       break;
     case "assistant.message":
       await sendSafe(assistantMessage(data.content ?? "", data.messageId ?? event.id));
@@ -428,6 +552,74 @@ function previewToolResult(data = {}) {
 function approvalTimeoutFromEnv() {
   const raw = Number.parseInt(process.env.HELM_APPROVAL_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_APPROVAL_TIMEOUT_MS;
+}
+
+function elicitationTimeoutFromEnv() {
+  const raw = Number.parseInt(process.env.HELM_ELICITATION_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ELICITATION_TIMEOUT_MS;
+}
+
+/** Shape the phone's response into the SDK's ElicitResult ({ action, content? }). */
+function elicitResultFromResponse(msg) {
+  const action = msg?.action === "accept" || msg?.action === "decline" ? msg.action : "cancel";
+  const result = { action };
+  if (action === "accept" && msg?.content && typeof msg.content === "object") {
+    result.content = msg.content;
+  }
+  return result;
+}
+
+/**
+ * Find the runtime's "answer an elicitation" method, probing the RPC surface then the session
+ * (the same defensive probing helm uses for `session.rpc.abort` / `mode.set`). Prefers the
+ * `try*` variant, which returns false instead of throwing when the request is already resolved.
+ * Returns a `(requestId, result) => boolean` responder, or null when the host exposes neither.
+ */
+function pickElicitationResponder(session, logger = () => {}) {
+  for (const owner of [session?.rpc, session]) {
+    if (!owner) continue;
+    const fn = owner.tryRespondToElicitation ?? owner.respondToElicitation;
+    if (typeof fn !== "function") continue;
+    return (requestId, result) => {
+      try {
+        const outcome = fn.call(owner, requestId, result);
+        return outcome === undefined ? true : Boolean(outcome);
+      } catch (err) {
+        logger(`Helm: respondToElicitation failed: ${err?.message ?? err}`, { level: "warning" });
+        return false;
+      }
+    };
+  }
+  return null;
+}
+
+/**
+ * Best-effort `registerInterest("elicitation.requested")` so the runtime counts this consumer
+ * as a listener and routes the prompt to us (SDK long-poll consumers aren't auto-observed).
+ * Returns a releaser thunk; a no-op when the host doesn't expose the interest API.
+ */
+async function registerElicitationInterest(session, logger = () => {}) {
+  for (const owner of [session?.rpc, session]) {
+    if (typeof owner?.registerInterest !== "function") continue;
+    try {
+      const result = await owner.registerInterest({ eventType: "elicitation.requested" });
+      const handle = result?.handle;
+      return () => {
+        if (handle == null || typeof owner.releaseInterest !== "function") return;
+        try {
+          void owner.releaseInterest({ handle });
+        } catch {
+          // Idempotent per the SDK; ignore release failures.
+        }
+      };
+    } catch (err) {
+      logger(`Helm: registerInterest(elicitation.requested) failed; continuing: ${err?.message ?? err}`, {
+        level: "info",
+      });
+      return () => {};
+    }
+  }
+  return () => {};
 }
 
 // Resolve the CLI "chat title" (summary) for a session. Prefer the live metadata RPC when the

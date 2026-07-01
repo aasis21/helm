@@ -4,6 +4,8 @@ import type {
   AssistantDelta,
   AssistantMessage,
   ActivityMessage,
+  ElicitationRequest,
+  ElicitationComplete,
   History as HistoryMessage,
   HistoryItem,
   InnerMessage,
@@ -64,6 +66,11 @@ export interface TimelineState {
   /** Transient per-request decision-send error (requestId -> message). Drives a retry
    *  affordance when a decision couldn't be relayed; reset on reconnect, never persisted. */
   approvalErrors: Record<string, string>;
+  /** Pending `ask_user` elicitation forms awaiting an answer (ext -> phone). Transient,
+   *  like approvals: cleared when answered/dismissed, reset on reconnect, never persisted. */
+  elicitations: ElicitationRequest[];
+  /** Transient per-request answer-send error (requestId -> message); mirrors approvalErrors. */
+  elicitationErrors: Record<string, string>;
   /** True while a turn is in flight (the agent is generating/acting). Transient — driven
    *  by the extension's activity signal (assistant.message_start/idle); never persisted.
    *  Gates the composer's Stop control so it tracks the whole abortable turn, not just tools. */
@@ -94,6 +101,8 @@ export function emptyTimeline(): TimelineState {
     items: [],
     approvals: [],
     approvalErrors: {},
+    elicitations: [],
+    elicitationErrors: {},
     busy: false,
     mode: DEFAULT_MODE,
     cwd: null,
@@ -155,6 +164,19 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
         approvalErrors: omitKey(state.approvalErrors, req.requestId),
       };
     }
+    case KIND.ELICITATION_REQUEST: {
+      const req = message as ElicitationRequest;
+      return {
+        ...state,
+        elicitations: [...state.elicitations.filter((e) => e.requestId !== req.requestId), req],
+        elicitationErrors: omitKey(state.elicitationErrors, req.requestId),
+      };
+    }
+    case KIND.ELICITATION_COMPLETE: {
+      // Resolved here, at the terminal, or on another device — drop any open form for it.
+      const { requestId } = message as ElicitationComplete;
+      return dismissElicitation(state, requestId);
+    }
     case KIND.SESSION_START:
       return {
         ...state,
@@ -206,6 +228,33 @@ export function dismissApproval(state: TimelineState, requestId: string): Timeli
     ...state,
     approvals: state.approvals.filter((a) => a.requestId !== requestId),
     approvalErrors: omitKey(state.approvalErrors, requestId),
+  };
+}
+
+export function dismissElicitation(state: TimelineState, requestId: string): TimelineState {
+  return {
+    ...state,
+    elicitations: state.elicitations.filter((e) => e.requestId !== requestId),
+    elicitationErrors: omitKey(state.elicitationErrors, requestId),
+  };
+}
+
+/**
+ * Re-add a previously dismissed elicitation (its answer failed to send) with a transient error
+ * so the form resurfaces with a retry. Pure; de-dupes by requestId. Mirrors restoreApproval.
+ */
+export function restoreElicitation(
+  state: TimelineState,
+  req: ElicitationRequest,
+  message: string,
+): TimelineState {
+  const elicitations = state.elicitations.some((e) => e.requestId === req.requestId)
+    ? state.elicitations
+    : [...state.elicitations, req];
+  return {
+    ...state,
+    elicitations,
+    elicitationErrors: { ...state.elicitationErrors, [req.requestId]: message },
   };
 }
 

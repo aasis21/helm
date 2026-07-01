@@ -7,6 +7,8 @@ import {
   assistantMessage,
   buildPairingPayload,
   createLocalTransport,
+  elicitationComplete,
+  elicitationRequest,
   generateKeyPair,
   heartbeat,
   history,
@@ -20,7 +22,7 @@ import {
   userMessage,
   waitForPeer,
 } from '@aasis21/helm-shared';
-import type { ApprovalDecision, ModeChange, PromptMessage } from '@aasis21/helm-shared';
+import type { ApprovalDecision, ElicitationResponse, ModeChange, PromptMessage } from '@aasis21/helm-shared';
 import { pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
 
@@ -72,6 +74,23 @@ export async function startDemoSession(): Promise<DemoSession> {
       const decision = message as ApprovalDecision;
       void extension.send(logLine('info', `Permission ${decision.requestId}: ${decision.optionId}`));
       void extension.send(toolComplete('tool-1', 'powershell', decision.optionId !== 'deny', 'native decision relayed'));
+    }),
+    extension.onEvent(EVENTS.ELICITATION_RESPONSE, (message) => {
+      // The phone answered the ask_user form: dismiss it everywhere, then have the "agent"
+      // react so the demo shows the round-trip (this is what respondToElicitation does live).
+      const reply = message as ElicitationResponse;
+      void extension.send(elicitationComplete(reply.requestId, reply.action));
+      if (reply.action === 'accept') {
+        const target = String(reply.content?.environment ?? 'staging');
+        void extension.send(logLine('info', `ask_user answered: deploy → ${target}`));
+        void extension.send(activity(true));
+        void extension.send(
+          assistantMessage(`Got it — deploying to **${target}**. Kicking off the pipeline now.`, 'demo-elicit-ack'),
+        );
+        window.setTimeout(() => void extension.send(activity(false)), 900);
+      } else {
+        void extension.send(logLine('warning', `ask_user ${reply.action}ed — holding off on the deploy.`));
+      }
     }),
     extension.onEvent(EVENTS.CONTROL, (message) => {
       const control = message as ModeChange;
@@ -167,6 +186,33 @@ export async function startDemoSession(): Promise<DemoSession> {
         { id: 'allow-always', label: 'Always allow this session' },
         { id: 'deny', label: 'Deny' },
       ]),
+    ),
+  );
+  // The agent then asks a structured question (ask_user / elicitation) — answerable right on
+  // the phone thanks to #64. Showcases select + toggle + free-text fields.
+  push(8_600, () =>
+    extension.send(
+      elicitationRequest(
+        'elicit-1',
+        'Tests pass. Where should I deploy this build?',
+        'form',
+        {
+          type: 'object',
+          properties: {
+            environment: {
+              type: 'string',
+              title: 'Deploy target',
+              enum: ['staging', 'production'],
+              enumNames: ['Staging', 'Production'],
+              default: 'staging',
+            },
+            runMigrations: { type: 'boolean', title: 'Run DB migrations first?', default: true },
+            note: { type: 'string', title: 'Release note', description: 'Shown in the deploy log (optional).' },
+          },
+          required: ['environment'],
+        },
+        'tool-elicit-1',
+      ),
     ),
   );
   push(120_000, () => extension.send(sessionEnd('Demo script finished.')));

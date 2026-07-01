@@ -2,15 +2,29 @@
 
 import type { HistoryItem } from "./history";
 
-export type LogicalEvent = "stream" | "prompt" | "approval" | "decision" | "control";
+export type LogicalEvent =
+  | "stream"
+  | "prompt"
+  | "approval"
+  | "decision"
+  | "elicitation"
+  | "elicitation_response"
+  | "control";
 
 export type SessionMode = "interactive" | "plan" | "autopilot";
+
+export type ElicitationMode = "form" | "url";
+export type ElicitationAction = "accept" | "decline" | "cancel";
+/** A submitted form value; matches a single JSON-Schema field's accepted types. */
+export type ElicitationValue = string | number | boolean | string[];
 
 export const EVENTS: {
   readonly STREAM: "stream";
   readonly PROMPT: "prompt";
   readonly APPROVAL: "approval";
   readonly DECISION: "decision";
+  readonly ELICITATION: "elicitation";
+  readonly ELICITATION_RESPONSE: "elicitation_response";
   readonly CONTROL: "control";
 };
 
@@ -25,6 +39,9 @@ export const KIND: {
   readonly PROMPT: "prompt";
   readonly APPROVAL_REQUEST: "approval.request";
   readonly APPROVAL_DECISION: "approval.decision";
+  readonly ELICITATION_REQUEST: "elicitation.request";
+  readonly ELICITATION_RESPONSE: "elicitation.response";
+  readonly ELICITATION_COMPLETE: "elicitation.complete";
   readonly SESSION_START: "control.session_start";
   readonly SESSION_META: "control.session_meta";
   readonly SESSION_END: "control.session_end";
@@ -109,6 +126,36 @@ export interface ApprovalDecision extends BaseMessage {
   optionId: string;
   raw?: unknown;
 }
+/** JSON Schema for a form-mode elicitation: an object whose properties are the fields. */
+export interface ElicitationSchema {
+  type: "object";
+  properties: Record<string, unknown>;
+  required?: string[];
+}
+/** Ext -> phone: the agent's `ask_user` / elicitation prompt to render as a form. */
+export interface ElicitationRequest extends BaseMessage {
+  kind: "elicitation.request";
+  requestId: string;
+  message: string;
+  mode: ElicitationMode;
+  requestedSchema?: ElicitationSchema;
+  toolCallId?: string;
+  /** Present only for url-mode elicitations: a link to open on the computer. */
+  url?: string;
+}
+/** Phone -> ext: the user's answer to an elicitation form. */
+export interface ElicitationResponse extends BaseMessage {
+  kind: "elicitation.response";
+  requestId: string;
+  action: ElicitationAction;
+  content?: Record<string, ElicitationValue>;
+}
+/** Ext -> phone: an elicitation was resolved elsewhere; dismiss any open form for it. */
+export interface ElicitationComplete extends BaseMessage {
+  kind: "elicitation.complete";
+  requestId: string;
+  action?: ElicitationAction;
+}
 export interface SessionStart extends BaseMessage {
   kind: "control.session_start";
   channelId: string;
@@ -163,6 +210,9 @@ export type InnerMessage =
   | PromptMessage
   | ApprovalRequest
   | ApprovalDecision
+  | ElicitationRequest
+  | ElicitationResponse
+  | ElicitationComplete
   | SessionStart
   | SessionMeta
   | SessionEnd
@@ -200,6 +250,23 @@ export function approvalDecision(
   optionId: string,
   raw?: unknown
 ): ApprovalDecision;
+export function elicitationRequest(
+  requestId: string,
+  message: string,
+  mode: ElicitationMode | undefined,
+  requestedSchema: ElicitationSchema | undefined,
+  toolCallId?: string,
+  url?: string
+): ElicitationRequest;
+export function elicitationResponse(
+  requestId: string,
+  action: ElicitationAction,
+  content?: Record<string, ElicitationValue>
+): ElicitationResponse;
+export function elicitationComplete(
+  requestId: string,
+  action?: ElicitationAction
+): ElicitationComplete;
 export function sessionStart(
   channelId: string,
   sessionId: string,

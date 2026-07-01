@@ -14,6 +14,8 @@ export const EVENTS = Object.freeze({
   PROMPT: "prompt", // phone -> ext: user prompt
   APPROVAL: "approval", // ext -> phone: native permission request
   DECISION: "decision", // phone -> ext: user's choice for an approval
+  ELICITATION: "elicitation", // ext -> phone: ask_user form request + its completion (dismiss)
+  ELICITATION_RESPONSE: "elicitation_response", // phone -> ext: the user's answer to a form
   CONTROL: "control", // both: lifecycle, heartbeat, mode
 });
 
@@ -38,6 +40,13 @@ export const KIND = Object.freeze({
   // approval (ext -> phone) / decision (phone -> ext)
   APPROVAL_REQUEST: "approval.request",
   APPROVAL_DECISION: "approval.decision",
+  // elicitation / ask_user (ext -> phone request + completion, phone -> ext response).
+  // Mirrors approval, but the payload is a JSON-Schema form the agent wants filled in.
+  ELICITATION_REQUEST: "elicitation.request",
+  ELICITATION_RESPONSE: "elicitation.response",
+  // ext -> phone: an elicitation was resolved (by this phone, the terminal, or another
+  // device) — the phone must dismiss any open form for this requestId.
+  ELICITATION_COMPLETE: "elicitation.complete",
   // control (both)
   SESSION_START: "control.session_start",
   SESSION_META: "control.session_meta",
@@ -140,6 +149,48 @@ export const approvalDecision = (requestId, optionId, raw) => ({
   ts: now(),
 });
 
+// ---- factories (elicitation / ask_user) ------------------------------------
+/**
+ * Elicitation request mirrors the CLI's `ask_user` / elicitation prompt (ext -> phone).
+ * `mode` is "form" (structured input, the common case) or "url" (open a browser).
+ * `requestedSchema` is the JSON Schema ({ type:"object", properties, required }) the phone
+ * renders as a form. `toolCallId` correlates the prompt with the tool call shown remotely.
+ */
+export const elicitationRequest = (requestId, message, mode, requestedSchema, toolCallId, url) => ({
+  kind: KIND.ELICITATION_REQUEST,
+  requestId,
+  message,
+  mode: mode ?? "form",
+  requestedSchema,
+  toolCallId,
+  url,
+  ts: now(),
+});
+/**
+ * Phone -> ext answer to an elicitation. `action` is "accept" (submitted the form),
+ * "decline" (explicitly refused) or "cancel" (dismissed). `content` carries the submitted
+ * field values (keyed by schema field name) and is only meaningful when action === "accept".
+ */
+export const elicitationResponse = (requestId, action, content) => ({
+  kind: KIND.ELICITATION_RESPONSE,
+  requestId,
+  action,
+  // Never ship half-entered field values off the phone when the user backs out.
+  content: action === "accept" ? content : undefined,
+  ts: now(),
+});
+/**
+ * Ext -> phone notice that an elicitation was resolved (here, at the terminal, or on another
+ * device). The phone dismisses any open form for `requestId`. `action` echoes how it was
+ * resolved when known, purely for display.
+ */
+export const elicitationComplete = (requestId, action) => ({
+  kind: KIND.ELICITATION_COMPLETE,
+  requestId,
+  action,
+  ts: now(),
+});
+
 // ---- factories (control) ---------------------------------------------------
 export const sessionStart = (channelId, sessionId, cwd, title) => ({
   kind: KIND.SESSION_START,
@@ -215,6 +266,11 @@ export function eventForKind(kind) {
       return EVENTS.APPROVAL;
     case KIND.APPROVAL_DECISION:
       return EVENTS.DECISION;
+    case KIND.ELICITATION_REQUEST:
+    case KIND.ELICITATION_COMPLETE:
+      return EVENTS.ELICITATION;
+    case KIND.ELICITATION_RESPONSE:
+      return EVENTS.ELICITATION_RESPONSE;
     case KIND.SESSION_START:
     case KIND.SESSION_META:
     case KIND.SESSION_END:

@@ -707,6 +707,116 @@
 }
 .approval-btn.deny:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); }
 
+/* ask_user / elicitation form (#64) — an answerable question, tinted with --accent. */
+.elicit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+}
+.elicit-head { display: flex; align-items: baseline; gap: 8px; }
+.elicit-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.elicit-message { margin: 0; font-size: 13px; line-height: 1.4; color: var(--fg); }
+.elicit-url-note { margin: 0; font-size: 12px; color: var(--fg-dim); line-height: 1.4; }
+.elicit-url {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--bg-rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.elicit-fields { display: flex; flex-direction: column; gap: 12px; }
+.elicit-field { display: flex; flex-direction: column; gap: 5px; }
+.elicit-label { font-size: 12px; font-weight: 600; color: var(--fg); }
+.elicit-req { color: var(--danger); }
+.elicit-desc { margin: 0; font-size: 11px; color: var(--fg-dim); line-height: 1.35; }
+.elicit-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  min-height: 40px;
+  border: 1px solid var(--bg-rule);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.elicit-input:focus { outline: none; border-color: var(--accent); }
+.elicit-field.invalid .elicit-input,
+.elicit-field.invalid .elicit-checks { border-color: color-mix(in srgb, var(--danger) 60%, transparent); }
+
+.elicit-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg); }
+.elicit-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+.elicit-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--bg-rule);
+  border-radius: 9px;
+  background: var(--bg);
+}
+.elicit-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.elicit-check.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.elicit-check input { width: 17px; height: 17px; accent-color: var(--accent); }
+
+.elicit-error { margin: 0; color: var(--danger); font-size: 11.5px; line-height: 1.3; }
+
+.elicit-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.elicit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  padding: 7px 14px;
+  min-height: 38px;
+  border: 1px solid var(--bg-rule);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.elicit-btn-icon { font-size: 11px; line-height: 1; opacity: 0.9; }
+.elicit-btn.submit { border-color: transparent; background: var(--accent); color: #fff; font-weight: 600; }
+.elicit-btn.decline {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-weight: 600;
+}
+.elicit-btn.decline:hover { background: color-mix(in srgb, var(--danger) 16%, transparent); }
+.elicit-btn.cancel { color: var(--fg-dim); }
+
 .ended-banner {
   display: flex;
   align-items: center;

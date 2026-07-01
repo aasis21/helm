@@ -15,7 +15,7 @@
 // planned follow-up; this layer covers the common "phone in hand / app recent" case.
 
 import { Capacitor } from '@capacitor/core';
-import type { ApprovalRequest } from '@aasis21/helm-shared';
+import type { ApprovalRequest, ElicitationRequest } from '@aasis21/helm-shared';
 
 const APPROVAL_CHANNEL = 'helm-approvals';
 
@@ -166,9 +166,49 @@ export async function notifyApprovalRequest(req: ApprovalRequest): Promise<void>
   }
 }
 
-/** Lower-priority heads-up that the bound session ended while you were away. */
-export async function notifySessionEnded(reason?: string): Promise<void> {
+/**
+ * Alert the user that Copilot is asking a question (ask_user / elicitation). Same "come look"
+ * nudge as approvals — buzz always, OS banner only when backgrounded. Privacy: the banner is
+ * generic (no question text or field values); the form itself travels E2E-encrypted.
+ */
+export async function notifyElicitationRequest(req: ElicitationRequest): Promise<void> {
+  buzz();
   if (!appIsHidden()) return;
+  if (!(await ensureNotificationPermission())) return;
+  const title = 'Copilot has a question';
+  const body = 'Open Helm to answer.';
+  try {
+    if (isNative()) {
+      const plugin = await loadNative();
+      await plugin?.schedule({
+        notifications: [
+          {
+            id: notificationIdFor(req.requestId),
+            channelId: APPROVAL_CHANNEL,
+            title,
+            body,
+            extra: { requestId: req.requestId },
+          },
+        ],
+      });
+    } else if (typeof Notification !== 'undefined') {
+      const note = new Notification(title, { body, tag: `helm-elicit-${req.requestId}` });
+      note.onclick = () => {
+        try {
+          window.focus();
+        } catch {
+          /* ignore */
+        }
+        note.close();
+      };
+    }
+  } catch {
+    /* best-effort: a failed alert must never break the live stream */
+  }
+}
+
+/** Lower-priority heads-up that the bound session ended while you were away. */
+export async function notifySessionEnded(reason?: string): Promise<void> {  if (!appIsHidden()) return;
   if (!(await ensureNotificationPermission())) return;
   const title = 'Helm session ended';
   const body = reason?.trim() || 'Your Copilot session disconnected.';

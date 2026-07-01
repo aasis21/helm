@@ -7,7 +7,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { EVENTS, KIND } from "@aasis21/helm-shared";
-import { attachRelay, createPermissionRelay, createPromptOriginTracker } from "../src/relay.mjs";
+import {
+  attachRelay,
+  createElicitationRelay,
+  createPermissionRelay,
+  createPromptOriginTracker,
+} from "../src/relay.mjs";
 
 const flush = () => new Promise((r) => setTimeout(r, 15));
 
@@ -37,16 +42,29 @@ function makeFakeSession(sessionId = "unknown-session") {
   let handler = null;
   const prompts = [];
   const abortCalls = [];
+  const elicitationResponses = [];
+  const interestCalls = [];
   return {
     sessionId,
     cwd: "/repo",
     prompts,
     abortCalls,
+    elicitationResponses,
+    interestCalls,
     rpc: {
       async abort(params) {
         abortCalls.push(params);
         return { success: true };
       },
+      async tryRespondToElicitation(requestId, result) {
+        elicitationResponses.push({ requestId, result });
+        return true;
+      },
+      async registerInterest(params) {
+        interestCalls.push(params);
+        return { handle: `handle-${interestCalls.length}` };
+      },
+      async releaseInterest() {},
     },
     on(fn) {
       handler = fn;
@@ -209,6 +227,92 @@ test("a tool-first turn still reports activity busy=true on tool start", async (
     const busy = channel.sent.find((m) => m.kind === KIND.ACTIVITY);
     assert.ok(busy && busy.busy === true, "expected activity busy=true alongside the tool start");
   });
+});
+
+// ---- ask_user / elicitation (#64) ------------------------------------------
+// The runtime emits elicitation.requested when the agent needs a structured answer.
+// The relay must ferry the form to the phone, feed the phone's answer back into the
+// SDK via respondToElicitation, dismiss the phone when any side answers, and never let
+// a walked-away phone hang the turn (fail-safe cancel on timeout).
+
+test("relays an elicitation.requested to the phone as a KIND.ELICITATION_REQUEST", async () => {
+  await withRelay(async ({ channel, session }) => {
+    session.emitEvent({
+      type: "elicitation.requested",
+      id: "el1",
+      data: {
+        requestId: "req-1",
+        message: "Where should I deploy?",
+        mode: "form",
+        requestedSchema: { type: "object", properties: { env: { type: "string" } }, required: ["env"] },
+        toolCallId: "tc-1",
+      },
+    });
+    await flush();
+    const req = channel.sent.find((m) => m.kind === KIND.ELICITATION_REQUEST);
+    assert.ok(req, "expected an elicitation.request relayed to the phone");
+    assert.equal(req.requestId, "req-1");
+    assert.equal(req.message, "Where should I deploy?");
+    assert.equal(req.requestedSchema.properties.env.type, "string");
+  });
+});
+
+test("feeds a phone elicitation answer back into the SDK via respondToElicitation", async () => {
+  await withRelay(async ({ channel, session }) => {
+    session.emitEvent({
+      type: "elicitation.requested",
+      id: "el2",
+      data: { requestId: "req-2", message: "Pick", mode: "form", requestedSchema: { type: "object", properties: {} } },
+    });
+    await flush();
+    channel.emit(EVENTS.ELICITATION_RESPONSE, {
+      kind: KIND.ELICITATION_RESPONSE,
+      requestId: "req-2",
+      action: "accept",
+      content: { env: "staging", migrate: true },
+    });
+    await flush();
+    assert.deepEqual(session.elicitationResponses, [
+      { requestId: "req-2", result: { action: "accept", content: { env: "staging", migrate: true } } },
+    ]);
+  });
+});
+
+test("dismisses the phone form when any side completes the elicitation", async () => {
+  await withRelay(async ({ channel, session }) => {
+    session.emitEvent({
+      type: "elicitation.completed",
+      id: "el3",
+      data: { requestId: "req-3", action: "accept" },
+    });
+    await flush();
+    const done = channel.sent.find((m) => m.kind === KIND.ELICITATION_COMPLETE);
+    assert.ok(done, "expected an elicitation.complete dismiss relayed to the phone");
+    assert.equal(done.requestId, "req-3");
+    assert.equal(done.action, "accept");
+  });
+});
+
+test("cancels a stale elicitation on timeout so a walked-away phone can't hang the turn", async () => {
+  const channel = makeFakeChannel();
+  const session = makeFakeSession();
+  const relay = createElicitationRelay({ session, channel, elicitationTimeoutMs: 15 });
+  try {
+    relay.offer({
+      requestId: "req-4",
+      message: "still there?",
+      mode: "form",
+      requestedSchema: { type: "object", properties: {} },
+    });
+    await new Promise((r) => setTimeout(r, 45));
+    assert.deepEqual(session.elicitationResponses, [
+      { requestId: "req-4", result: { action: "cancel" } },
+    ]);
+    const dismiss = channel.sent.find((m) => m.kind === KIND.ELICITATION_COMPLETE);
+    assert.ok(dismiss && dismiss.action === "cancel", "expected a cancel dismiss after timeout");
+  } finally {
+    relay.close();
+  }
 });
 
 // ---- permission decisions → native CLI decision kinds ----------------------

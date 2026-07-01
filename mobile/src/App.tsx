@@ -115,6 +115,9 @@ export default function App(): JSX.Element {
       activeId={active.meta.channelId}
       onPrompt={(text) => void sessionManager.sendPrompt(active.meta.channelId, text)}
       onApprove={(requestId, optionId) => void sessionManager.sendApproval(active.meta.channelId, requestId, optionId)}
+      onElicitationRespond={(requestId, action, content) =>
+        void sessionManager.sendElicitation(active.meta.channelId, requestId, action, content)
+      }
       onInterrupt={() => void sessionManager.sendInterrupt(active.meta.channelId)}
       onModeChange={(mode: SessionMode) => void sessionManager.sendMode(active.meta.channelId, mode)}
       onSelectSession={(id) => sessionManager.setActive(id)}

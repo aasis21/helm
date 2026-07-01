@@ -1,14 +1,16 @@
-import { KIND, approvalDecision, historyRequest, interrupt, modeChange, prompt, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
+import { KIND, approvalDecision, elicitationResponse, historyRequest, interrupt, modeChange, prompt, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
 import type { InnerMessage, SessionMode } from '@aasis21/helm-shared';
 import { connectSession, pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
 import {
   appendUser,
   dismissApproval,
+  dismissElicitation,
   emptyTimeline,
   markHistoryLoading,
   reduceTimeline,
   restoreApproval,
+  restoreElicitation,
   restoreTimeline,
   toPersisted,
 } from './timeline';
@@ -21,6 +23,7 @@ import type { DemoSession } from './demoSimulator';
 import {
   ensureNotificationPermission,
   notifyApprovalRequest,
+  notifyElicitationRequest,
   notifySessionEnded,
 } from './notifications';
 
@@ -239,6 +242,9 @@ class SessionManager {
     if (message.kind === KIND.APPROVAL_REQUEST) {
       void notifyApprovalRequest(message);
     }
+    if (message.kind === KIND.ELICITATION_REQUEST) {
+      void notifyElicitationRequest(message);
+    }
 
     // LOCAL-FIRST: persist the transcript so a refresh restores it without a pull.
     this.schedulePersist(channelId);
@@ -414,6 +420,36 @@ class SessionManager {
           runtime.timeline,
           pending,
           err instanceof Error ? err.message : 'Could not send your decision — tap again to retry.',
+        );
+        this.emit();
+      }
+    }
+  }
+
+  /**
+   * Answer an `ask_user` elicitation form. `action` is 'accept' (with `content`), 'decline', or
+   * 'cancel'. Mirrors sendApproval: dismiss optimistically, restore with a retry if the send
+   * fails so the user isn't left believing they answered while the agent stays blocked.
+   */
+  async sendElicitation(
+    channelId: string,
+    requestId: string,
+    action: 'accept' | 'decline' | 'cancel',
+    content?: Record<string, string | number | boolean | string[]>,
+  ): Promise<void> {
+    const runtime = this.runtimes.get(channelId);
+    if (!runtime) return;
+    const pending = runtime.timeline.elicitations.find((e) => e.requestId === requestId);
+    runtime.timeline = dismissElicitation(runtime.timeline, requestId);
+    this.emit();
+    try {
+      await runtime.client?.send(elicitationResponse(requestId, action, content));
+    } catch (err) {
+      if (pending) {
+        runtime.timeline = restoreElicitation(
+          runtime.timeline,
+          pending,
+          err instanceof Error ? err.message : 'Could not send your answer — try again.',
         );
         this.emit();
       }

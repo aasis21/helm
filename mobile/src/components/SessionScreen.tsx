@@ -4,6 +4,7 @@ import type { SessionMode } from '@aasis21/helm-shared';
 import type { SessionView } from '../lib/sessionManager';
 import { ChatThread } from './ChatThread';
 import { Composer } from './Composer';
+import { ElicitationCard } from './ElicitationCard';
 import { SessionDrawer } from './SessionDrawer';
 import { StatusBar } from './StatusBar';
 
@@ -59,6 +60,11 @@ interface SessionScreenProps {
   activeId: string;
   onPrompt(text: string): void;
   onApprove(requestId: string, optionId: string): void;
+  onElicitationRespond(
+    requestId: string,
+    action: 'accept' | 'decline' | 'cancel',
+    content?: Record<string, string | number | boolean | string[]>,
+  ): void;
   onInterrupt(): void;
   onModeChange(mode: SessionMode): void;
   onSelectSession(channelId: string): void;
@@ -74,6 +80,7 @@ export function SessionScreen({
   activeId,
   onPrompt,
   onApprove,
+  onElicitationRespond,
   onInterrupt,
   onModeChange,
   onSelectSession,
@@ -183,6 +190,17 @@ export function SessionScreen({
             </div>
           );
         })}
+
+        {timeline.elicitations.map((req) => (
+          <ElicitationCard
+            key={req.requestId}
+            req={req}
+            error={timeline.elicitationErrors[req.requestId]}
+            onSubmit={(content) => onElicitationRespond(req.requestId, 'accept', content)}
+            onDecline={() => onElicitationRespond(req.requestId, 'decline')}
+            onCancel={() => onElicitationRespond(req.requestId, 'cancel')}
+          />
+        ))}
 
         <Composer
           disabled={ended}
