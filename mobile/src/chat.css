@@ -551,24 +551,60 @@
   border-top: 1px solid var(--bg-rule);
 }
 .composer { display: flex; flex-direction: column; gap: 7px; }
-.composer-toolbar { display: flex; align-items: center; gap: 8px; }
-.composer-spacer { flex: 1; }
 
-.pill {
+/* Unified Claude-style card: the message sits on top, one control row underneath. */
+.composer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--bg-rule);
+  border-radius: 22px;
+  background: var(--bg-elev);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.composer-shell:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--bg-rule));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.composer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.composer-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.composer-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.mode-wrap { position: relative; }
+.mode-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--bg-rule);
+  padding: 5px 9px;
+  border: 0;
   border-radius: 999px;
-  background: var(--bg-elev);
+  background: transparent;
   color: var(--fg-dim);
-  font-size: 12px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
 }
-.pill:hover { color: var(--fg); }
-.mode-wrap { position: relative; }
+.mode-pill:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); }
 .mode-pill .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.mode-pill .pill-caret { font-size: 9px; }
+.mode-pill .pill-caret { font-size: 9px; opacity: 0.85; }
 .cwd-chip {
   overflow: hidden;
   max-width: 45%;
@@ -607,43 +643,36 @@
 .mode-menu-item.active { color: var(--accent); }
 .mode-check { width: 12px; color: var(--accent); }
 
-.composer-input-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 5px 5px 5px 13px;
-  border: 1px solid var(--bg-rule);
-  border-radius: 18px;
-  background: var(--bg-elev);
-}
-.composer-input-row:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--bg-rule)); }
-.composer textarea {
-  flex: 1;
-  min-width: 0;
-  min-height: 22px;
-  max-height: 132px;
-  padding: 7px 0;
+.composer-input {
+  width: 100%;
+  min-height: 24px;
+  max-height: 200px;
+  padding: 4px 6px 2px;
   border: 0;
   background: transparent;
   color: var(--fg);
   font: inherit;
-  line-height: 1.45;
+  line-height: 1.5;
   resize: none;
   outline: none;
 }
-.composer textarea::placeholder { color: var(--fg-faint); }
+.composer-input::placeholder { color: var(--fg-faint); }
 .send-btn {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: 0;
-  border-radius: 13px;
+  border-radius: 50%;
   background: var(--accent);
   color: #fff;
+  cursor: pointer;
+  transition: background 140ms ease, transform 120ms ease;
 }
-.send-btn:disabled { background: var(--bg-rule); color: var(--fg-faint); }
+.send-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, #fff); }
+.send-btn:active:not(:disabled) { transform: scale(0.94); }
+.send-btn:disabled { background: color-mix(in srgb, var(--fg) 14%, transparent); color: var(--fg-faint); cursor: default; }
 .send-btn svg { width: 18px; height: 18px; }
 
 /* Stop / interrupt: shown in place of Send while the agent is busy (#1). */
@@ -651,16 +680,17 @@
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger);
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--error) 55%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  color: var(--error);
   cursor: pointer;
+  transition: background 140ms ease;
 }
-.stop-btn:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
-.stop-btn svg { width: 14px; height: 14px; }
+.stop-btn:hover { background: color-mix(in srgb, var(--error) 26%, transparent); }
+.stop-btn svg { width: 15px; height: 15px; }
 
 /* approval + ended banners (pinned above composer) */
 /* Bounded, announced stack of pending approvals: never let queued approvals push the

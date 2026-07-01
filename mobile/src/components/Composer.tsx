@@ -1,7 +1,6 @@
 import '../composer.css';
 
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { JSX, KeyboardEvent } from 'react';
 import { MODES } from '@aasis21/helm-shared';
 import type { SessionMode } from '@aasis21/helm-shared';
@@ -106,16 +105,12 @@ export function Composer({
   onModeChange,
 }: ComposerProps): JSX.Element {
   const [text, setText] = useState('');
-  const [queued, setQueued] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
-  const fullscreenAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const modeWrapRef = useRef<HTMLDivElement | null>(null);
   const modeButtonRef = useRef<HTMLButtonElement | null>(null);
-  const wasBusyRef = useRef(busy);
   const speechCommittedRef = useRef('');
   const speech = useSpeechInput();
 
@@ -129,26 +124,12 @@ export function Composer({
     const el = areaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [text]);
 
   useEffect(() => {
     setText(loadDraft(sessionId));
   }, [sessionId]);
-
-  useEffect(() => {
-    if (!fullscreenOpen) return;
-    window.requestAnimationFrame(() => fullscreenAreaRef.current?.focus());
-  }, [fullscreenOpen]);
-
-  useEffect(() => {
-    if (wasBusyRef.current && !busy && queued.length > 0) {
-      const pending = queued;
-      setQueued([]);
-      if (!disabled) pending.forEach((item) => void onPrompt(item));
-    }
-    wasBusyRef.current = busy;
-  }, [busy, disabled, onPrompt, queued]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -181,15 +162,11 @@ export function Composer({
 
   const send = async (): Promise<void> => {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || disabled || busy) return;
     if (speech.listening) speech.stop();
     setText('');
     setSlashDismissed(false);
     saveDraft(sessionId, '');
-    if (busy) {
-      setQueued((items) => [...items, trimmed]);
-      return;
-    }
     await onPrompt(trimmed);
   };
 
@@ -230,15 +207,6 @@ export function Composer({
     void send();
   };
 
-  const onFullscreenKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setFullscreenOpen(false);
-      return;
-    }
-    onKeyDown(event);
-  };
-
   const toggleSpeech = (): void => {
     if (speech.listening) {
       speech.stop();
@@ -251,10 +219,6 @@ export function Composer({
       if (isFinal) speechCommittedRef.current = next;
       onTextChange(next);
     });
-  };
-
-  const removeQueued = (index: number): void => {
-    setQueued((items) => items.filter((_, itemIndex) => itemIndex !== index));
   };
 
   const focusMenuItem = (direction: 1 | -1): void => {
@@ -289,76 +253,6 @@ export function Composer({
         void send();
       }}
     >
-      <div className="composer-toolbar">
-        <div className="mode-wrap" ref={modeWrapRef}>
-          <button
-            ref={modeButtonRef}
-            type="button"
-            className="pill mode-pill"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-            onKeyDown={onModeButtonKeyDown}
-          >
-            <span className="pill-dot" aria-hidden="true" />
-            {MODE_LABEL[mode] ?? mode}
-            <span className="pill-caret" aria-hidden="true">▾</span>
-          </button>
-          {menuOpen ? (
-            <div className="mode-menu" role="menu" onKeyDown={onModeMenuKeyDown}>
-              {MODES.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={item === mode}
-                  className={`mode-menu-item${item === mode ? ' active' : ''}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    if (item !== mode) void onModeChange(item);
-                  }}
-                >
-                  <span className="mode-check">{item === mode ? '✓' : ''}</span>
-                  {MODE_LABEL[item] ?? item}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        {folder ? <span className="cwd-chip" title={cwd ?? undefined}>📁 {folder}</span> : null}
-        <span className="composer-spacer" />
-        <button
-          type="button"
-          className="expand-btn"
-          aria-label="Expand editor"
-          title="Expand editor"
-          onClick={() => setFullscreenOpen(true)}
-          disabled={disabled}
-        >
-          ⤢
-        </button>
-      </div>
-
-      {busy ? <div className="busy-hint">Agent is working — send now to queue a follow-up.</div> : null}
-
-      {queued.length > 0 ? (
-        <div className="queued-row" aria-label="Queued messages">
-          {queued.map((item, index) => (
-            <span className="queued-chip" key={`${item}-${index}`}>
-              <span className="queued-text">{item}</span>
-              <button
-                type="button"
-                className="queued-remove"
-                aria-label="Remove queued message"
-                onClick={() => removeQueued(index)}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
       {slashOpen ? (
         <div className="slash-menu" role="listbox" aria-label="Slash command suggestions">
           {slashOptions.map((item, index) => (
@@ -378,9 +272,10 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className="composer-input-row">
+      <div className="composer-shell">
         <textarea
           ref={areaRef}
+          className="composer-input"
           rows={1}
           aria-label="Message your Copilot session"
           disabled={disabled}
@@ -390,95 +285,83 @@ export function Composer({
           onChange={(event) => onTextChange(event.target.value)}
           placeholder={disabled ? 'Session ended — re-pair to continue.' : 'Message your Copilot session…'}
         />
-        {speech.supported && !disabled ? (
-          <button
-            className={`mic-btn${speech.listening ? ' listening' : ''}`}
-            type="button"
-            onClick={toggleSpeech}
-            aria-label={speech.listening ? 'Stop voice input' : 'Start voice input'}
-            title={speech.listening ? 'Stop voice input' : 'Start voice input'}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M12 14a3 3 0 003-3V6a3 3 0 00-6 0v5a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0 01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H8a1 1 0 100 2h8a1 1 0 100-2h-3v-3.1A5 5 0 0017 11z" />
-            </svg>
-          </button>
-        ) : null}
-        {busy ? (
-          <>
-            <button
-              className="send-btn queue-btn"
-              type="submit"
-              disabled={disabled || !text.trim()}
-              aria-label="Queue message"
-              title="Queue message"
-            >
-              Queue
-            </button>
-            <button
-              className="stop-btn"
-              type="button"
-              onClick={onInterrupt}
-              aria-label="Stop generating"
-              title="Stop generating"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
-              </svg>
-            </button>
-          </>
-        ) : (
-          <button className="send-btn" type="submit" disabled={disabled || !text.trim()} aria-label="Send">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M4 12l15-7-7 15-2-6-6-2z" />
-            </svg>
-          </button>
-        )}
-      </div>
 
-      {fullscreenOpen
-        ? createPortal(
-            <div className="composer-fullscreen" role="dialog" aria-modal="true" aria-label="Expanded composer editor">
-              <div className="composer-fullscreen-panel">
-                <div className="composer-fullscreen-header">
-                  <span>Expanded editor</span>
-                  <button
-                    type="button"
-                    className="composer-fullscreen-close"
-                    aria-label="Close editor"
-                    onClick={() => setFullscreenOpen(false)}
-                  >
-                    Done
-                  </button>
+        <div className="composer-controls">
+          <div className="composer-controls-left">
+            <div className="mode-wrap" ref={modeWrapRef}>
+              <button
+                ref={modeButtonRef}
+                type="button"
+                className="mode-pill"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((v) => !v)}
+                onKeyDown={onModeButtonKeyDown}
+              >
+                <span className="pill-dot" aria-hidden="true" />
+                {MODE_LABEL[mode] ?? mode}
+                <span className="pill-caret" aria-hidden="true">▾</span>
+              </button>
+              {menuOpen ? (
+                <div className="mode-menu" role="menu" onKeyDown={onModeMenuKeyDown}>
+                  {MODES.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={item === mode}
+                      className={`mode-menu-item${item === mode ? ' active' : ''}`}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (item !== mode) void onModeChange(item);
+                      }}
+                    >
+                      <span className="mode-check">{item === mode ? '✓' : ''}</span>
+                      {MODE_LABEL[item] ?? item}
+                    </button>
+                  ))}
                 </div>
-                <textarea
-                  ref={fullscreenAreaRef}
-                  className="composer-fullscreen-textarea"
-                  aria-label="Expanded message editor"
-                  disabled={disabled}
-                  value={text}
-                  spellCheck={false}
-                  onKeyDown={onFullscreenKeyDown}
-                  onChange={(event) => onTextChange(event.target.value)}
-                />
-                <div className="composer-fullscreen-actions">
-                  <button
-                    type="button"
-                    className="send-btn composer-fullscreen-send"
-                    disabled={disabled || !text.trim()}
-                    aria-label={busy ? 'Queue message' : 'Send'}
-                    onClick={() => {
-                      void send();
-                      setFullscreenOpen(false);
-                    }}
-                  >
-                    {busy ? 'Queue message' : 'Send'}
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+              ) : null}
+            </div>
+            {folder ? <span className="cwd-chip" title={cwd ?? undefined}>📁 {folder}</span> : null}
+          </div>
+
+          <div className="composer-controls-right">
+            {speech.supported && !disabled ? (
+              <button
+                className={`mic-btn${speech.listening ? ' listening' : ''}`}
+                type="button"
+                onClick={toggleSpeech}
+                aria-label={speech.listening ? 'Stop voice input' : 'Start voice input'}
+                title={speech.listening ? 'Stop voice input' : 'Start voice input'}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M12 14a3 3 0 003-3V6a3 3 0 00-6 0v5a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0 01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H8a1 1 0 100 2h8a1 1 0 100-2h-3v-3.1A5 5 0 0017 11z" />
+                </svg>
+              </button>
+            ) : null}
+            {busy ? (
+              <button
+                className="stop-btn"
+                type="button"
+                onClick={onInterrupt}
+                aria-label="Stop generating"
+                title="Stop generating"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />
+                </svg>
+              </button>
+            ) : (
+              <button className="send-btn" type="submit" disabled={disabled || !text.trim()} aria-label="Send">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M12 5l6.5 6.5-1.4 1.4L13 8.8V19h-2V8.8l-4.1 4.1-1.4-1.4z" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </form>
   );
 }

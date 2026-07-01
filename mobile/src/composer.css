@@ -1,103 +1,32 @@
-.expand-btn,
-.mic-btn,
-.queue-btn,
-.queued-remove,
-.composer-fullscreen-close,
-.composer-fullscreen-send {
-  min-width: 44px;
-  min-height: 44px;
-}
+/* Composer right-side action buttons + slash popover.
+   The unified card layout (shell, controls row, textarea, send/stop) lives in chat.css. */
 
-.expand-btn,
 .mic-btn {
   width: 44px;
+  height: 44px;
   flex: 0 0 auto;
-  border: 1px solid var(--bg-rule);
-  background: var(--bg-elev);
+  border: 0;
+  background: transparent;
   color: var(--fg-dim);
-  border-radius: 999px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
   cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
 }
 
-.expand-btn:hover,
-.mic-btn:hover {
-  color: var(--fg);
-}
+.mic-btn:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); }
 
-.expand-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.mic-btn svg,
-.stop-btn svg,
-.send-btn svg {
+.mic-btn svg {
   width: 1.15rem;
   height: 1.15rem;
 }
 
 .mic-btn.listening {
-  color: #f87171;
-  border-color: rgba(248, 113, 113, 0.65);
-  box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.38);
+  color: var(--error);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--error) 40%, transparent);
   animation: composer-mic-pulse 1.7s ease-out infinite;
-}
-
-.busy-hint {
-  color: var(--fg-dim);
-  font-size: 0.78rem;
-  padding: 0.35rem 0.25rem 0;
-}
-
-.queued-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0.55rem 0 0.1rem;
-}
-
-.queued-chip {
-  align-items: center;
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
-  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--bg-rule));
-  border-radius: 999px;
-  color: var(--fg);
-  display: inline-flex;
-  gap: 0.35rem;
-  max-width: min(100%, 28rem);
-  padding: 0.15rem 0.2rem 0.15rem 0.75rem;
-}
-
-.queued-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.queued-remove {
-  background: transparent;
-  border: 0;
-  border-radius: 999px;
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 1.15rem;
-  line-height: 1;
-  min-width: 44px;
-  min-height: 44px;
-}
-
-.queue-btn {
-  border-radius: 999px;
-  padding: 0 0.9rem;
-  width: auto;
-}
-
-.stop-btn {
-  color: #fecaca;
 }
 
 .slash-menu {
@@ -107,7 +36,7 @@
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.28);
   display: grid;
   gap: 0.2rem;
-  margin: 0.6rem 0 0.45rem;
+  margin: 0;
   padding: 0.35rem;
 }
 
@@ -144,84 +73,12 @@
   white-space: nowrap;
 }
 
-.composer-fullscreen {
-  align-items: stretch;
-  background: rgba(1, 4, 9, 0.76);
-  backdrop-filter: blur(16px);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  padding: clamp(1rem, 4vw, 2.5rem);
-  position: fixed;
-  z-index: 1000;
-}
-
-.composer-fullscreen-panel {
-  background: var(--bg-elev);
-  border: 1px solid var(--bg-rule);
-  border-radius: 1.25rem;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
-  color: var(--fg);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  max-width: 56rem;
-  overflow: hidden;
-  width: 100%;
-}
-
-.composer-fullscreen-header,
-.composer-fullscreen-actions {
-  align-items: center;
-  display: flex;
-  gap: 0.75rem;
-  justify-content: space-between;
-  padding: 0.85rem;
-}
-
-.composer-fullscreen-header {
-  border-bottom: 1px solid var(--bg-rule);
-  font-weight: 700;
-}
-
-.composer-fullscreen-close {
-  background: transparent;
-  border: 1px solid var(--bg-rule);
-  border-radius: 999px;
-  color: var(--fg);
-  cursor: pointer;
-  padding: 0 1rem;
-}
-
-.composer-fullscreen-textarea {
-  background: var(--bg);
-  border: 0;
-  color: var(--fg);
-  font: inherit;
-  line-height: 1.55;
-  min-height: 18rem;
-  outline: none;
-  padding: 1rem;
-  resize: none;
-  width: 100%;
-}
-
-.composer-fullscreen-actions {
-  border-top: 1px solid var(--bg-rule);
-  justify-content: flex-end;
-}
-
-.composer-fullscreen-send {
-  border-radius: 999px;
-  padding: 0 1.2rem;
-  width: auto;
-}
-
 @keyframes composer-mic-pulse {
   70% {
-    box-shadow: 0 0 0 0.55rem rgba(248, 113, 113, 0);
+    box-shadow: 0 0 0 0.55rem color-mix(in srgb, var(--error) 0%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--error) 0%, transparent);
   }
 }
 
@@ -230,5 +87,3 @@
     animation: none;
   }
 }
-
-
