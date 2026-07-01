@@ -50,6 +50,8 @@ export const KIND: {
   readonly INTERRUPT: "control.interrupt";
   readonly HISTORY_REQUEST: "control.history_request";
   readonly HISTORY: "control.history";
+  readonly STATE_REQUEST: "control.state_request";
+  readonly STATE_SNAPSHOT: "control.state_snapshot";
 };
 
 export const MODES: readonly SessionMode[];
@@ -176,6 +178,8 @@ export interface SessionEnd extends BaseMessage {
 }
 export interface Heartbeat extends BaseMessage {
   kind: "control.heartbeat";
+  /** Highest committed turn_index in the CLI store at beat time (forward cursor); null if unknown. */
+  latestTurnIndex?: number | null;
 }
 export interface ModeChange extends BaseMessage {
   kind: "control.mode";
@@ -185,10 +189,13 @@ export interface ModeChange extends BaseMessage {
 export interface InterruptMessage extends BaseMessage {
   kind: "control.interrupt";
 }
-/** Phone -> ext: request a page of older turns (cursor = turn_index, exclusive). */
+/** Phone -> ext: request a page of turns (cursor = turn_index, exclusive). */
 export interface HistoryRequest extends BaseMessage {
   kind: "control.history_request";
+  /** Backward cursor: return turns OLDER than this ("load earlier"). */
   before?: number | null;
+  /** Forward cursor: return turns NEWER than this, ascending (post-away catch-up). */
+  since?: number | null;
   limit?: number;
 }
 /** Ext -> phone: a page of history items in ascending turn order. */
@@ -197,6 +204,26 @@ export interface History extends BaseMessage {
   items: HistoryItem[];
   nextCursor: number | null;
   hasMore: boolean;
+}
+/** Phone -> ext: request the current session state on (re)connect / refresh / resume. */
+export interface StateRequest extends BaseMessage {
+  kind: "control.state_request";
+}
+/** Ext -> phone: a snapshot of the live session state, answering a StateRequest. */
+export interface StateSnapshot extends BaseMessage {
+  kind: "control.state_snapshot";
+  /** A turn is in flight (agent working). */
+  busy: boolean;
+  /** The in-flight work can be stopped (drives the Stop control at connect time). */
+  abortable: boolean;
+  /** Current session mode, or null when unknown. */
+  mode: SessionMode | null;
+  /** Highest committed turn_index in the store (the phone's forward cursor); null if none. */
+  latestTurnIndex: number | null;
+  /** Pending approval prompts to (re)render, in approvalRequest shape. */
+  approvals: ApprovalRequest[];
+  /** Pending ask_user / elicitation prompts to (re)render, in elicitationRequest shape. */
+  elicitations: ElicitationRequest[];
 }
 
 export type InnerMessage =
@@ -220,7 +247,9 @@ export type InnerMessage =
   | ModeChange
   | InterruptMessage
   | HistoryRequest
-  | History;
+  | History
+  | StateRequest
+  | StateSnapshot;
 
 export function assistantMessage(content: string, messageId?: string): AssistantMessage;
 export function assistantDelta(content: string, messageId?: string): AssistantDelta;
@@ -275,14 +304,27 @@ export function sessionStart(
 ): SessionStart;
 export function sessionMeta(title?: string, cwd?: string): SessionMeta;
 export function sessionEnd(reason?: string): SessionEnd;
-export function heartbeat(): Heartbeat;
+export function heartbeat(latestTurnIndex?: number | null): Heartbeat;
 export function modeChange(mode: SessionMode): ModeChange;
 export function interrupt(): InterruptMessage;
-export function historyRequest(before?: number | null, limit?: number): HistoryRequest;
+export function historyRequest(
+  before?: number | null,
+  limit?: number,
+  since?: number | null
+): HistoryRequest;
 export function history(
   items: HistoryItem[],
   nextCursor?: number | null,
   hasMore?: boolean
 ): History;
+export function stateRequest(): StateRequest;
+export function stateSnapshot(snapshot?: {
+  busy?: boolean;
+  abortable?: boolean;
+  mode?: SessionMode | null;
+  latestTurnIndex?: number | null;
+  approvals?: ApprovalRequest[];
+  elicitations?: ElicitationRequest[];
+}): StateSnapshot;
 export function eventForKind(kind: string): LogicalEvent;
 export function isValidInner(msg: unknown): msg is InnerMessage;

@@ -40,43 +40,59 @@ export async function readSummary(sessionId, dbPath = DB_PATH) {
 }
 
 /**
- * A page of conversation history for a session, newest-turns-first on the wire but
- * returned ascending for display. Reads the CLI's `turns` table (one row per completed
- * turn = user_message + final assistant_response, text only). Each turn yields up to two
- * HistoryItems: `{ turnIndex, role, text, ts }`. The in-flight turn has a NULL
- * assistant_response → its assistant item is skipped.
+ * A page of conversation history for a session. Reads the CLI's `turns` table (one row per
+ * completed turn = user_message + final assistant_response, text only). Each turn yields up to two
+ * HistoryItems: `{ turnIndex, role, text, ts }`, returned ascending for display. The in-flight turn
+ * has a NULL assistant_response → its assistant item is skipped.
  *
- * Pagination is cursor-based on `turn_index`:
- *  - `before` (exclusive) — return turns with `turn_index < before`; null/undefined = latest.
+ * Cursor-based pagination on `turn_index`, one of three directions (backward is the default):
+ *  - `since` (exclusive)  — FORWARD catch-up: turns with `turn_index > since`, oldest-first. Takes
+ *    precedence over `before` when both are given. `nextCursor` = highest turn_index in the page.
+ *  - `before` (exclusive) — BACKWARD scrollback: turns with `turn_index < before`; null = latest.
+ *    `nextCursor` = lowest turn_index in the page (the next older page's `before`).
  *  - `limit` — clamped to HISTORY_PAGE_MAX so each encrypted broadcast stays small.
- * Returns `{ items, nextCursor, hasMore }` where `nextCursor` is the `before` to pass for
- * the next older page (or null when there is nothing older).
- *
- * Returns an empty page on any read failure (missing DB, old Node, locked file, …).
+ * Returns `{ items, nextCursor, hasMore }`; `nextCursor` continues in the SAME direction (or null
+ * when nothing more remains). Returns an empty page on any read failure (missing DB, old Node, …).
  */
-export async function readHistory(sessionId, { before = null, limit } = {}, dbPath = DB_PATH) {
+export async function readHistory(
+  sessionId,
+  { before = null, since = null, limit } = {},
+  dbPath = DB_PATH,
+) {
   const empty = { items: [], nextCursor: null, hasMore: false };
   if (!sessionId) return empty;
   const pageSize = clampLimit(limit);
+  const forward = Number.isFinite(since);
   try {
     const db = await openDb(dbPath);
     try {
-      // Fetch one extra row to detect whether older turns remain (hasMore).
-      const hasCursor = Number.isFinite(before);
-      const sql =
-        "SELECT turn_index, user_message, assistant_response, timestamp FROM turns " +
-        "WHERE session_id = ?" +
-        (hasCursor ? " AND turn_index < ?" : "") +
-        " ORDER BY turn_index DESC LIMIT ?";
-      const params = hasCursor ? [sessionId, before, pageSize + 1] : [sessionId, pageSize + 1];
+      // Fetch one extra row to detect whether more turns remain (hasMore).
+      let sql;
+      let params;
+      if (forward) {
+        // Forward catch-up: turns NEWER than `since`, oldest-first so gap pages fill in order.
+        sql =
+          "SELECT turn_index, user_message, assistant_response, timestamp FROM turns " +
+          "WHERE session_id = ? AND turn_index > ? ORDER BY turn_index ASC LIMIT ?";
+        params = [sessionId, since, pageSize + 1];
+      } else {
+        const hasCursor = Number.isFinite(before);
+        sql =
+          "SELECT turn_index, user_message, assistant_response, timestamp FROM turns " +
+          "WHERE session_id = ?" +
+          (hasCursor ? " AND turn_index < ?" : "") +
+          " ORDER BY turn_index DESC LIMIT ?";
+        params = hasCursor ? [sessionId, before, pageSize + 1] : [sessionId, pageSize + 1];
+      }
       const rows = db.prepare(sql).all(...params);
 
       const hasMore = rows.length > pageSize;
       const page = hasMore ? rows.slice(0, pageSize) : rows;
-      // `page` is newest-first; the oldest turn in it is the cursor for the next page.
+      // Cursor to continue in the SAME direction: forward pages end on the NEWEST turn (highest
+      // index), backward pages end on the OLDEST turn (lowest index) — both are page[last].
       const nextCursor = hasMore ? page[page.length - 1].turn_index : null;
 
-      page.reverse(); // ascending for display
+      if (!forward) page.reverse(); // backward pages come DESC; flip to ascending for display
       const items = [];
       for (const r of page) {
         const ts = parseTs(r.timestamp);
@@ -91,6 +107,29 @@ export async function readHistory(sessionId, { before = null, limit } = {}, dbPa
     }
   } catch {
     return empty;
+  }
+}
+
+/**
+ * The highest `turn_index` recorded for a session (its most recent committed turn), or null when
+ * the session has no turns yet or the store can't be read. Used as the phone's forward cursor so a
+ * post-away catch-up knows where "now" is (carried on the heartbeat and in the state snapshot).
+ */
+export async function readLatestTurnIndex(sessionId, dbPath = DB_PATH) {
+  if (!sessionId) return null;
+  try {
+    const db = await openDb(dbPath);
+    try {
+      const row = db
+        .prepare("SELECT MAX(turn_index) AS maxTurn FROM turns WHERE session_id = ?")
+        .get(sessionId);
+      const max = row && row.maxTurn;
+      return Number.isFinite(max) ? max : null;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
   }
 }
 

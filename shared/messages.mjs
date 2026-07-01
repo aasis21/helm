@@ -59,6 +59,11 @@ export const KIND = Object.freeze({
   // (first join, or scrollback) from the CLI session store.
   HISTORY_REQUEST: "control.history_request",
   HISTORY: "control.history",
+  // state snapshot (phone <-> ext): on (re)connect / refresh / resume the phone asks the ext
+  // for the CURRENT session state (busy/mode + pending approval & ask_user prompts) so a fresh
+  // or mid-turn join shows the truth immediately instead of waiting for the next live event.
+  STATE_REQUEST: "control.state_request",
+  STATE_SNAPSHOT: "control.state_snapshot",
 });
 
 /** Session modes the phone can request. (Applied best-effort by the extension; see spike.) */
@@ -216,7 +221,16 @@ export const sessionEnd = (reason) => ({
   reason,
   ts: now(),
 });
-export const heartbeat = () => ({ kind: KIND.HEARTBEAT, ts: now() });
+/**
+ * Ext -> phone liveness beat. `latestTurnIndex` is the highest committed turn_index in the CLI
+ * store at beat time (or null when unknown), so a connected phone keeps a FRESH forward cursor
+ * for post-away catch-up without waiting for a full state snapshot.
+ */
+export const heartbeat = (latestTurnIndex = null) => ({
+  kind: KIND.HEARTBEAT,
+  latestTurnIndex,
+  ts: now(),
+});
 export const modeChange = (mode) => ({ kind: KIND.MODE, mode, ts: now() });
 /**
  * Phone -> ext request to stop the current turn. The extension calls the SDK's
@@ -226,13 +240,18 @@ export const interrupt = () => ({ kind: KIND.INTERRUPT, ts: now() });
 
 // ---- factories (history backfill) ------------------------------------------
 /**
- * Phone -> ext request for a page of older turns. `before` is a turn_index cursor
- * (exclusive); null/undefined means "the latest page". `limit` is a hint — the
- * extension clamps it to a safe maximum so each encrypted broadcast stays small.
+ * Phone -> ext request for a page of turns. Three directions share this one kind:
+ *  - latest page  → both `before` and `since` null/undefined (fresh join / never-seen session).
+ *  - backward     → `before` is a turn_index cursor (exclusive): return turns OLDER than it
+ *                   ("load earlier" scrollback).
+ *  - forward      → `since` is a turn_index cursor (exclusive): return turns NEWER than it,
+ *                   ascending (post-away catch-up). `before` and `since` are mutually exclusive.
+ * `limit` is a hint — the extension clamps it to a safe max so each encrypted broadcast stays small.
  */
-export const historyRequest = (before = null, limit) => ({
+export const historyRequest = (before = null, limit, since = null) => ({
   kind: KIND.HISTORY_REQUEST,
   before,
+  since,
   limit,
   ts: now(),
 });
@@ -246,6 +265,41 @@ export const history = (items, nextCursor = null, hasMore = false) => ({
   items,
   nextCursor,
   hasMore,
+  ts: now(),
+});
+
+// ---- factories (state snapshot) --------------------------------------------
+/**
+ * Phone -> ext: request the current session state on (re)connect / refresh / resume. The ext
+ * replies with a stateSnapshot so a phone that joins fresh, reconnects, or lands MID-TURN shows
+ * the truth immediately (working vs ready, current mode, and any pending prompts) instead of
+ * waiting for the next live event.
+ */
+export const stateRequest = () => ({ kind: KIND.STATE_REQUEST, ts: now() });
+/**
+ * Ext -> phone snapshot of the live session state, answering a stateRequest:
+ *  - `busy`      — a turn is in flight (from the SDK activity RPC / isProcessing).
+ *  - `abortable` — that in-flight work can be stopped (drives the Stop control at connect time).
+ *  - `mode`      — the session's current mode, or null when unknown.
+ *  - `latestTurnIndex` — highest committed turn_index in the store (the phone's forward cursor).
+ *  - `approvals` / `elicitations` — currently PENDING prompts to (re)render, each already in
+ *    approvalRequest / elicitationRequest shape so the phone reuses its normal renderers.
+ */
+export const stateSnapshot = ({
+  busy = false,
+  abortable = false,
+  mode = null,
+  latestTurnIndex = null,
+  approvals = [],
+  elicitations = [],
+} = {}) => ({
+  kind: KIND.STATE_SNAPSHOT,
+  busy: Boolean(busy),
+  abortable: Boolean(abortable),
+  mode,
+  latestTurnIndex,
+  approvals,
+  elicitations,
   ts: now(),
 });
 
@@ -279,6 +333,8 @@ export function eventForKind(kind) {
     case KIND.INTERRUPT:
     case KIND.HISTORY_REQUEST:
     case KIND.HISTORY:
+    case KIND.STATE_REQUEST:
+    case KIND.STATE_SNAPSHOT:
       return EVENTS.CONTROL;
     default:
       throw new Error(`helm/messages: unknown kind "${kind}"`);

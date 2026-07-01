@@ -19,8 +19,9 @@ import {
   heartbeat,
   modeChange,
   history,
+  stateSnapshot,
 } from "@aasis21/helm-shared";
-import { readSummary, readHistory } from "./store.mjs";
+import { readSummary, readHistory, readLatestTurnIndex } from "./store.mjs";
 
 const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
 // ask_user forms take longer to fill in than a one-tap approval, so allow more slack before
@@ -91,8 +92,11 @@ export function createPermissionRelay({
     const toolName = inferToolName(request);
     const toolArgs = inferToolArgs(request);
     const options = inferOptions(request);
+    // Keep the exact payload we sent so a late-joining phone can have it replayed verbatim
+    // in a state snapshot (same requestId → its decision still resolves this pending entry).
+    const payload = approvalRequest(requestId, toolName, toolArgs, options);
 
-    await channel.send(approvalRequest(requestId, toolName, toolArgs, options));
+    await channel.send(payload);
 
     return await new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -107,8 +111,14 @@ export function createPermissionRelay({
         });
       }, approvalTimeoutMs);
 
-      pending.set(requestId, { resolve, timer, request, invocation });
+      pending.set(requestId, { resolve, timer, request, invocation, payload });
     });
+  }
+
+  /** The still-pending approval prompts, as their original approvalRequest payloads, so a phone
+   *  that (re)connects mid-request can render them from a state snapshot. */
+  function snapshotPending() {
+    return [...pending.values()].map((entry) => entry.payload).filter(Boolean);
   }
 
   function close() {
@@ -123,7 +133,7 @@ export function createPermissionRelay({
     }
   }
 
-  return { onPermissionRequest, close };
+  return { onPermissionRequest, snapshotPending, close };
 }
 
 /**
@@ -185,16 +195,17 @@ export function createElicitationRelay({
   async function offer(data = {}) {
     const requestId = data.requestId;
     if (!requestId) return;
-    await channel.send(
-      elicitationRequest(
-        requestId,
-        data.message ?? "",
-        data.mode ?? "form",
-        data.requestedSchema,
-        data.toolCallId,
-        data.url,
-      ),
+    // Keep the exact payload we sent so a late-joining phone can have the open form replayed
+    // verbatim in a state snapshot (same requestId → its answer still resolves this prompt).
+    const payload = elicitationRequest(
+      requestId,
+      data.message ?? "",
+      data.mode ?? "form",
+      data.requestedSchema,
+      data.toolCallId,
+      data.url,
     );
+    await channel.send(payload);
     const timer = setTimeout(() => {
       pending.delete(requestId);
       // Fail safe so a walked-away phone can't hang the agent; no-op if already answered.
@@ -206,7 +217,13 @@ export function createElicitationRelay({
       });
     }, elicitationTimeoutMs);
     timer.unref?.();
-    pending.set(requestId, { timer });
+    pending.set(requestId, { timer, payload });
+  }
+
+  /** The still-open ask_user prompts, as their original elicitationRequest payloads, so a phone
+   *  that (re)connects mid-prompt can render them from a state snapshot. */
+  function snapshotPending() {
+    return [...pending.values()].map((entry) => entry.payload).filter(Boolean);
   }
 
   async function complete(data = {}) {
@@ -234,7 +251,7 @@ export function createElicitationRelay({
     }
   }
 
-  return { offer, complete, close };
+  return { offer, complete, snapshotPending, close };
 }
 
 export async function attachRelay({
@@ -277,7 +294,10 @@ export async function attachRelay({
   await sendSafe(sessionStart(channelId ?? channel.transport?.channelId, sessionId, cwd, lastTitle));
   const heartbeatTimer = setInterval(() => {
     void (async () => {
-      await sendSafe(heartbeat());
+      // Carry the store's latest turn_index so a connected phone keeps a fresh forward cursor
+      // (readLatestTurnIndex is best-effort and returns null on any read failure).
+      const latestTurnIndex = await readLatestTurnIndex(sessionId);
+      await sendSafe(heartbeat(latestTurnIndex));
       // The CLI keeps refining the chat title (summary) as the conversation grows; push the
       // latest to the phone whenever it changes so the header tracks the terminal.
       const title = await fetchTitle(session);
@@ -324,6 +344,10 @@ export async function attachRelay({
       }
       if (msg?.kind === KIND.HISTORY_REQUEST) {
         void serveHistory(sessionId, msg, sendSafe, logger);
+        return;
+      }
+      if (msg?.kind === KIND.STATE_REQUEST) {
+        void serveStateSnapshot({ session, sessionId, approvals, elicitations, sendSafe, logger });
       }
     }),
   );
@@ -413,15 +437,80 @@ async function handleSessionEvent(event, sendSafe, promptOrigin, elicitations) {
   }
 }
 
-/** Answer a phone's HISTORY_REQUEST with a page of older turns from the CLI store. */
+/** Answer a phone's HISTORY_REQUEST with a page of turns (forward, backward, or latest). */
 async function serveHistory(sessionId, msg, sendSafe, logger) {
   try {
     const before = Number.isFinite(msg?.before) ? msg.before : null;
-    const page = await readHistory(sessionId, { before, limit: msg?.limit });
+    const since = Number.isFinite(msg?.since) ? msg.since : null;
+    const page = await readHistory(sessionId, { before, since, limit: msg?.limit });
     await sendSafe(history(page.items, page.nextCursor, page.hasMore));
   } catch (err) {
     logger?.(`Helm history request failed: ${err?.message ?? err}`, { level: "warning" });
     await sendSafe(history([], null, false));
+  }
+}
+
+/**
+ * Answer a phone's STATE_REQUEST with a snapshot of the live session state so a fresh, reconnecting,
+ * or MID-TURN join immediately shows the truth (working vs ready, current mode, latest turn cursor)
+ * and re-renders any prompts still pending on the terminal — instead of waiting for the next event.
+ */
+async function serveStateSnapshot({ session, sessionId, approvals, elicitations, sendSafe, logger }) {
+  try {
+    const [activity, mode, latestTurnIndex] = await Promise.all([
+      readSessionActivity(session),
+      readCurrentMode(session),
+      readLatestTurnIndex(sessionId),
+    ]);
+    await sendSafe(
+      stateSnapshot({
+        busy: activity.busy,
+        abortable: activity.abortable,
+        mode,
+        latestTurnIndex,
+        approvals: approvals?.snapshotPending?.() ?? [],
+        elicitations: elicitations?.snapshotPending?.() ?? [],
+      }),
+    );
+  } catch (err) {
+    logger?.(`Helm state request failed: ${err?.message ?? err}`, { level: "warning" });
+    // An empty snapshot is safe (ready + no pending); the phone falls back to live events.
+    await sendSafe(stateSnapshot({}));
+  }
+}
+
+/**
+ * Best-effort read of whether a turn is in flight and whether it can be stopped. Prefers the
+ * experimental `metadata.activity()` RPC ({ hasActiveWork, abortable }); falls back to
+ * `metadata.isProcessing()`; defaults to idle when neither is exposed by the host.
+ */
+async function readSessionActivity(session) {
+  try {
+    const a = await session?.rpc?.metadata?.activity?.();
+    if (a && typeof a === "object") {
+      return { busy: Boolean(a.hasActiveWork), abortable: Boolean(a.abortable) };
+    }
+  } catch {
+    // Experimental/absent — fall through to isProcessing.
+  }
+  try {
+    const p = await session?.rpc?.metadata?.isProcessing?.();
+    const busy = Boolean(p && (typeof p === "object" ? p.isProcessing : p));
+    return { busy, abortable: busy };
+  } catch {
+    return { busy: false, abortable: false };
+  }
+}
+
+/** Best-effort read of the session's current mode from the experimental metadata snapshot. */
+async function readCurrentMode(session) {
+  try {
+    const snap = await session?.rpc?.metadata?.snapshot?.();
+    const m = snap?.currentMode;
+    const name = typeof m === "string" ? m : (m?.mode ?? m?.name);
+    return MODES.includes(name) ? name : null;
+  } catch {
+    return null;
   }
 }
 

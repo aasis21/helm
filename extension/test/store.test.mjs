@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readHistory, readSummary } from "../src/store.mjs";
+import { readHistory, readLatestTurnIndex, readSummary } from "../src/store.mjs";
 
 const SESSION = "sess-1";
 let dir;
@@ -124,6 +124,49 @@ test("readHistory clips long messages", async () => {
     assert.ok(it.text.length <= 4001, `clipped to ~4000 (+ellipsis), got ${it.text.length}`);
     assert.ok(it.text.endsWith("…"));
   }
+});
+
+test("readHistory forward catch-up returns turns newer than `since`, ascending", async () => {
+  // Everything after turn 1: turns 2,3 (complete) + turn 4 (user only, in-flight).
+  const page = await readHistory(SESSION, { since: 1 }, dbPath);
+  assert.deepEqual(
+    page.items.map((i) => `${i.turnIndex}:${i.role}`),
+    ["2:user", "2:assistant", "3:user", "3:assistant", "4:user"]
+  );
+  assert.equal(page.hasMore, false);
+  assert.equal(page.nextCursor, null);
+});
+
+test("readHistory forward paginates by highest turn_index and takes precedence over before", async () => {
+  // since=0, limit 2 => turns 1,2; nextCursor = highest turn in page (2), more remain.
+  const p1 = await readHistory(SESSION, { since: 0, before: 3, limit: 2 }, dbPath);
+  assert.equal(p1.hasMore, true);
+  assert.equal(p1.nextCursor, 2); // newest turn_index in the forward page, not the oldest
+  assert.deepEqual(p1.items.map((i) => i.turnIndex), [1, 1, 2, 2]);
+
+  // Continue forward from 2 => turns 3,4; turn 4 has no assistant; nothing newer remains.
+  const p2 = await readHistory(SESSION, { since: p1.nextCursor, limit: 2 }, dbPath);
+  assert.equal(p2.hasMore, false);
+  assert.equal(p2.nextCursor, null);
+  assert.deepEqual(
+    p2.items.map((i) => `${i.turnIndex}:${i.role}`),
+    ["3:user", "3:assistant", "4:user"]
+  );
+});
+
+test("readHistory forward beyond the latest turn is an empty page", async () => {
+  const page = await readHistory(SESSION, { since: 99 }, dbPath);
+  assert.deepEqual(page.items, []);
+  assert.equal(page.hasMore, false);
+  assert.equal(page.nextCursor, null);
+});
+
+test("readLatestTurnIndex returns the max turn_index, null for unknown/empty/missing", async () => {
+  assert.equal(await readLatestTurnIndex(SESSION, dbPath), 4);
+  assert.equal(await readLatestTurnIndex("other", dbPath), 0);
+  assert.equal(await readLatestTurnIndex("nope", dbPath), null);
+  assert.equal(await readLatestTurnIndex("", dbPath), null);
+  assert.equal(await readLatestTurnIndex(SESSION, join(dir, "nope.db")), null);
 });
 
 test("readHistory returns an empty page for unknown session or missing db", async () => {

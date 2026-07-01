@@ -9,6 +9,9 @@ import {
   userMessage,
   historyRequest,
   history,
+  heartbeat,
+  stateRequest,
+  stateSnapshot,
   activity,
   elicitationRequest,
   elicitationResponse,
@@ -43,6 +46,65 @@ test("historyRequest defaults before=null and passes limit through", () => {
   const r2 = historyRequest(42, 25);
   assert.equal(r2.before, 42);
   assert.equal(r2.limit, 25);
+});
+
+test("historyRequest carries a forward `since` cursor, defaulting to null", () => {
+  const fwd = historyRequest(null, 50, 12);
+  assert.equal(fwd.kind, KIND.HISTORY_REQUEST);
+  assert.equal(fwd.before, null);
+  assert.equal(fwd.since, 12);
+  assert.equal(fwd.limit, 50);
+  // Existing latest/backward callers are unaffected (since stays null).
+  assert.equal(historyRequest().since, null);
+  assert.equal(historyRequest(42, 25).since, null);
+});
+
+test("heartbeat carries an optional latestTurnIndex forward cursor", () => {
+  const h = heartbeat(7);
+  assert.equal(h.kind, KIND.HEARTBEAT);
+  assert.equal(h.latestTurnIndex, 7);
+  assert.equal(typeof h.ts, "number");
+  assert.equal(heartbeat().latestTurnIndex, null); // default when unknown
+});
+
+test("stateRequest is a bare control request", () => {
+  const r = stateRequest();
+  assert.equal(r.kind, KIND.STATE_REQUEST);
+  assert.equal(typeof r.ts, "number");
+});
+
+test("stateSnapshot coerces flags and defaults its pending lists", () => {
+  const empty = stateSnapshot();
+  assert.equal(empty.kind, KIND.STATE_SNAPSHOT);
+  assert.equal(empty.busy, false);
+  assert.equal(empty.abortable, false);
+  assert.equal(empty.mode, null);
+  assert.equal(empty.latestTurnIndex, null);
+  assert.deepEqual(empty.approvals, []);
+  assert.deepEqual(empty.elicitations, []);
+
+  const full = stateSnapshot({
+    busy: 1,
+    abortable: 1,
+    mode: "plan",
+    latestTurnIndex: 9,
+    approvals: [{ requestId: "a" }],
+    elicitations: [{ requestId: "e" }],
+  });
+  assert.equal(full.busy, true); // coerced from truthy
+  assert.equal(full.abortable, true);
+  assert.equal(full.mode, "plan");
+  assert.equal(full.latestTurnIndex, 9);
+  assert.equal(full.approvals.length, 1);
+  assert.equal(full.elicitations.length, 1);
+});
+
+test("eventForKind routes the state kinds to CONTROL, and they pass isValidInner", () => {
+  assert.equal(eventForKind(KIND.STATE_REQUEST), EVENTS.CONTROL);
+  assert.equal(eventForKind(KIND.STATE_SNAPSHOT), EVENTS.CONTROL);
+  assert.ok(isValidInner(stateRequest()));
+  assert.ok(isValidInner(stateSnapshot()));
+  assert.ok(isValidInner(heartbeat(3)));
 });
 
 test("history factory carries items + pagination cursor", () => {

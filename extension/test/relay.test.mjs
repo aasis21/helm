@@ -190,6 +190,98 @@ test("answers a HISTORY_REQUEST with a control.history message", async () => {
   });
 });
 
+// ---- state snapshot (unified sync: connect-time truth) ----------------------
+// On (re)connect / refresh / resume the phone sends a STATE_REQUEST; the ext replies with a
+// state_snapshot so a fresh or MID-TURN join immediately shows working-vs-ready, the mode, and
+// any prompts still pending at the terminal — instead of waiting for the next live event.
+
+test("answers a STATE_REQUEST with a control.state_snapshot (safe idle defaults)", async () => {
+  await withRelay(async ({ channel }) => {
+    channel.emit(EVENTS.CONTROL, { kind: KIND.STATE_REQUEST });
+    await flush();
+    const snap = channel.sent.find((m) => m.kind === KIND.STATE_SNAPSHOT);
+    assert.ok(snap, "expected a control.state_snapshot response");
+    // The fake session exposes no metadata RPC → idle defaults, no pending prompts.
+    assert.equal(snap.busy, false);
+    assert.equal(snap.abortable, false);
+    assert.equal(snap.mode, null);
+    assert.deepEqual(snap.approvals, []);
+    assert.deepEqual(snap.elicitations, []);
+  });
+});
+
+test("a STATE_REQUEST replays a still-open ask_user prompt to a late-joining phone", async () => {
+  await withRelay(async ({ channel, session }) => {
+    session.emitEvent({
+      type: "elicitation.requested",
+      id: "elX",
+      data: {
+        requestId: "req-late",
+        message: "Still deciding?",
+        mode: "form",
+        requestedSchema: { type: "object", properties: {} },
+      },
+    });
+    await flush();
+    channel.emit(EVENTS.CONTROL, { kind: KIND.STATE_REQUEST });
+    await flush();
+    const snap = channel.sent.filter((m) => m.kind === KIND.STATE_SNAPSHOT).at(-1);
+    assert.ok(snap, "expected a state snapshot");
+    assert.equal(snap.elicitations.length, 1);
+    assert.equal(snap.elicitations[0].requestId, "req-late");
+    assert.equal(snap.elicitations[0].message, "Still deciding?");
+  });
+});
+
+test("a STATE_REQUEST reflects busy/mode from the session metadata RPC when present", async () => {
+  const channel = makeFakeChannel();
+  const session = makeFakeSession();
+  session.rpc.metadata = {
+    async activity() {
+      return { hasActiveWork: true, abortable: true };
+    },
+    async snapshot() {
+      return { currentMode: "plan" };
+    },
+  };
+  const relay = await attachRelay({ session, channel, channelId: "chan-1", heartbeatMs: 10_000_000 });
+  try {
+    channel.emit(EVENTS.CONTROL, { kind: KIND.STATE_REQUEST });
+    await flush();
+    const snap = channel.sent.find((m) => m.kind === KIND.STATE_SNAPSHOT);
+    assert.ok(snap, "expected a state snapshot");
+    assert.equal(snap.busy, true);
+    assert.equal(snap.abortable, true);
+    assert.equal(snap.mode, "plan");
+  } finally {
+    await relay.stop("test", { closeTransport: false });
+  }
+});
+
+test("createElicitationRelay.snapshotPending replays open ask_user payloads, cleared on complete", async () => {
+  const channel = makeFakeChannel();
+  const session = makeFakeSession();
+  const relay = createElicitationRelay({ session, channel, elicitationTimeoutMs: 10_000_000 });
+  try {
+    await relay.offer({
+      requestId: "req-open",
+      message: "Which env?",
+      mode: "form",
+      requestedSchema: { type: "object", properties: { env: { type: "string" } } },
+    });
+    const snap = relay.snapshotPending();
+    assert.equal(snap.length, 1);
+    assert.equal(snap[0].kind, KIND.ELICITATION_REQUEST);
+    assert.equal(snap[0].requestId, "req-open");
+    assert.equal(snap[0].message, "Which env?");
+    // Resolving it (here or at the terminal) removes it from the snapshot.
+    await relay.complete({ requestId: "req-open", action: "accept" });
+    assert.deepEqual(relay.snapshotPending(), []);
+  } finally {
+    relay.close();
+  }
+});
+
 test("relays a control.interrupt to the SDK turn-abort and notifies the phone", async () => {
   await withRelay(async ({ channel, session }) => {
     channel.emit(EVENTS.CONTROL, { kind: KIND.INTERRUPT });
@@ -370,6 +462,33 @@ test("a permission timeout fails closed with the native reject kind", async () =
   try {
     const result = await relay.onPermissionRequest({ kind: "shell", toolName: "powershell" });
     assert.equal(result.kind, "reject");
+  } finally {
+    relay.close();
+  }
+});
+
+test("createPermissionRelay.snapshotPending replays pending approval payloads verbatim", async () => {
+  const channel = makeFakeChannel();
+  const relay = createPermissionRelay({ channel });
+  try {
+    void relay.onPermissionRequest({ kind: "shell", toolName: "powershell" });
+    await flush();
+    const snap = relay.snapshotPending();
+    assert.equal(snap.length, 1);
+    assert.equal(snap[0].kind, KIND.APPROVAL_REQUEST);
+    assert.equal(snap[0].toolName, "powershell");
+    // The replayed payload reuses the SAME requestId sent to the phone, so a decision on the
+    // replayed prompt still resolves the original pending entry.
+    const sent = channel.sent.find((m) => m.kind === KIND.APPROVAL_REQUEST);
+    assert.equal(snap[0].requestId, sent.requestId);
+    // Answering it removes it from the snapshot.
+    channel.emit(EVENTS.DECISION, {
+      kind: KIND.APPROVAL_DECISION,
+      requestId: sent.requestId,
+      optionId: "approved",
+    });
+    await flush();
+    assert.deepEqual(relay.snapshotPending(), []);
   } finally {
     relay.close();
   }
