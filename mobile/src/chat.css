@@ -187,6 +187,12 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
   animation: helm-beat 2s ease-in-out infinite;
 }
+.status-line.busy { color: var(--accent); }
+.status-line.busy .status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: helm-beat 1s ease-in-out infinite;
+}
 .status-line.connecting .status-dot,
 .status-dot.connecting { background: var(--accent); animation: helm-beat 1.2s ease-in-out infinite; }
 .status-line.idle .status-dot,
@@ -1070,6 +1076,8 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Unread is shown by emphasizing the title (not a second dot — the dot is connection state only). */
+.session-row.unread .session-title { font-weight: 800; color: var(--fg); }
 .session-sub {
   overflow: hidden;
   color: var(--fg-faint);
@@ -1441,22 +1449,6 @@
 .helm-session .session-row {
   position: relative;
   min-height: 44px;
-}
-
-.helm-session .unread-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.helm-session .session-row .unread-dot {
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  transform: translate(-50%, -50%);
 }
 
 .helm-session .unread-badge {

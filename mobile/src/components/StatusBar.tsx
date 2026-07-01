@@ -6,6 +6,8 @@ interface StatusBarProps {
   title: string;
   cwd: string | null;
   status: SessionStatus;
+  /** True while the agent is actively working (busy). Overrides the "Live" label with "Working…". */
+  busy?: boolean;
   sessionCount: number;
   canReconnect: boolean;
   onOpenDrawer(): void;
@@ -27,6 +29,7 @@ export function StatusBar({
   title,
   cwd,
   status,
+  busy = false,
   sessionCount,
   canReconnect,
   onOpenDrawer,
@@ -39,6 +42,11 @@ export function StatusBar({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const snapshot = useSyncExternalStore(sessionManager.subscribe, sessionManager.getSnapshot);
   const unreadCount = snapshot.sessions.filter((session) => session.unread && session.meta.channelId !== snapshot.activeId).length;
+  // While the agent is working the header reads "Working…" with a live pulse, so a connected but idle
+  // session ("Live") is visibly distinct from one that's actively churning a turn.
+  const working = busy && status === 'live';
+  const lineClass = working ? 'busy' : status;
+  const statusLabel = working ? 'Working…' : STATUS_LABEL[status];
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -68,9 +76,9 @@ export function StatusBar({
 
       <div className="status-id">
         <span className="status-title" title={cwd ?? undefined}>{title}</span>
-        <span className={`status-line ${status}`}>
+        <span className={`status-line ${lineClass}`}>
           <span className="status-dot" aria-hidden="true" />
-          {STATUS_LABEL[status]}
+          {statusLabel}
         </span>
       </div>
 

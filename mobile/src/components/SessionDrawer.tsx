@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
-import type { SessionView } from '../lib/sessionManager';
+import type { SessionView, SessionStatus } from '../lib/sessionManager';
+
+// The list conveys ONLY connection state via a single dot; this is its hover tooltip.
+const CONN_TITLE: Record<SessionStatus, string> = {
+  connecting: 'Connecting…',
+  live: 'Connected',
+  idle: 'Quiet — reconnecting',
+  ended: 'Ended',
+  error: 'Offline',
+};
 
 interface SessionDrawerProps {
   sessions: SessionView[];
@@ -55,12 +64,17 @@ export function SessionDrawer({
 
   const filteredSessions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((session) => {
-      const title = session.meta.title.toLowerCase();
-      const cwd = session.meta.cwd?.toLowerCase() ?? '';
-      return title.includes(q) || cwd.includes(q);
-    });
+    const matched = q
+      ? sessions.filter((session) => {
+          const title = session.meta.title.toLowerCase();
+          const cwd = session.meta.cwd?.toLowerCase() ?? '';
+          return title.includes(q) || cwd.includes(q);
+        })
+      : sessions;
+    // Newest session first: sort by most-recent activity, falling back to when it was added so a
+    // freshly-joined session with no turns yet still lands on top.
+    const recency = (s: SessionView): number => Math.max(lastActivity(s) ?? 0, s.meta.addedAt ?? 0);
+    return [...matched].sort((a, b) => recency(b) - recency(a));
   }, [query, sessions]);
 
   useEffect(() => {
@@ -165,7 +179,7 @@ export function SessionDrawer({
               return (
                 <div
                   key={id}
-                  className={`session-row ${isActive ? 'current' : ''}`}
+                  className={`session-row ${isActive ? 'current' : ''} ${session.unread && !isActive ? 'unread' : ''}`}
                   role="button"
                   tabIndex={0}
                   onClick={() => onSelect(id)}
@@ -173,8 +187,11 @@ export function SessionDrawer({
                     if (e.key === 'Enter' || e.key === ' ') onSelect(id);
                   }}
                 >
-                  <span className={`status-dot ${session.status}`} aria-hidden="true" />
-                  {session.unread && !isActive ? <span className="unread-dot" aria-hidden="true" /> : null}
+                  <span
+                    className={`status-dot ${session.status}`}
+                    title={CONN_TITLE[session.status]}
+                    aria-label={CONN_TITLE[session.status]}
+                  />
                   <span className="session-info">
                     <span className="session-title">
                       {session.meta.title}

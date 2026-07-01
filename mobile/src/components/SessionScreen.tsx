@@ -292,6 +292,7 @@ export function SessionScreen({
         title={meta.title}
         cwd={meta.cwd}
         status={status}
+        busy={agentBusy}
         sessionCount={sessions.length}
         canReconnect={canReconnect}
         onOpenDrawer={() => setDrawerOpen(true)}
