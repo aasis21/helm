@@ -10,6 +10,7 @@ import type { HistoryItem } from '@aasis21/helm-shared';
 import type { TimelineItem } from '../lib/timeline';
 import { Markdown } from './Markdown';
 import { ToolCard } from './ToolCard';
+import '../thread-extras.css';
 
 interface ChatThreadProps {
   items: TimelineItem[];
@@ -20,6 +21,10 @@ interface ChatThreadProps {
   /** Shown centered when there is nothing yet. */
   emptyHint?: string;
   onRetry?: (itemId: string) => void;
+  /** True when the relay connection is down (connecting/idle) so we show an in-thread notice. */
+  offline?: boolean;
+  /** Label for the offline banner. */
+  offlineLabel?: string;
 }
 
 const COPILOT_AVATAR: ReactNode = (
@@ -83,7 +88,7 @@ interface MenuState {
   y: number;
 }
 
-export function ChatThread({ items, history = [], streaming = false, emptyHint, onRetry }: ChatThreadProps): JSX.Element {
+export function ChatThread({ items, history = [], streaming = false, emptyHint, onRetry, offline = false, offlineLabel }: ChatThreadProps): JSX.Element {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -277,6 +282,13 @@ export function ChatThread({ items, history = [], streaming = false, emptyHint, 
       <div aria-live="polite" className="sr-only">
         {liveText}
       </div>
+
+      {offline ? (
+        <div className="thread-offline-banner" role="status">
+          <span className="thread-offline-dot" aria-hidden="true" />
+          <span>{offlineLabel ?? 'Reconnecting…'}</span>
+        </div>
+      ) : null}
 
       {initialLoading ? (
         <div className="thread-skeleton" aria-label="Loading conversation">

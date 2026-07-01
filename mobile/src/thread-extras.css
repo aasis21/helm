@@ -1,0 +1,44 @@
+.thread-offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 92%;
+  margin: 0 auto 0.5rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  color: #f5e7c8;
+  background: rgba(240, 176, 64, 0.16);
+  border: 1px solid rgba(240, 176, 64, 0.42);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.thread-offline-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f0b040;
+  animation: thread-offline-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes thread-offline-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-offline-dot {
+    animation: none;
+  }
+}

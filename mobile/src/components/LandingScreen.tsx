@@ -58,18 +58,18 @@ const CAN_DO = [
 
 const ICONS: Record<string, JSX.Element> = {
   chat: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M21 11.5a8.5 8.5 0 0 1-12.4 7.6L3 21l1.9-5.6A8.5 8.5 0 1 1 21 11.5Z" />
     </svg>
   ),
   check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <circle cx="12" cy="12" r="9" />
       <path d="m8.4 12.2 2.4 2.4 4.8-5.2" />
     </svg>
   ),
   refresh: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1" />
       <path d="M18.5 3.5V8H14" />
       <path d="M20.5 12a8.5 8.5 0 0 1-14.4 6.1" />
@@ -79,7 +79,7 @@ const ICONS: Record<string, JSX.Element> = {
 };
 
 const LOCK_ICON: JSX.Element = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
     <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.4" />
     <path d="M8 10.5V7.2a4 4 0 0 1 8 0v3.3" />
     <circle cx="12" cy="15" r="1.1" />

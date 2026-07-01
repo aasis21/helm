@@ -182,6 +182,8 @@ export function SessionScreen({
     status === 'live' &&
     (timeline.busy || timeline.items.some((i) => i.kind === 'tool' && i.status === 'running'));
   const canReconnect = meta.kind !== 'demo' && (status === 'ended' || status === 'error' || status === 'idle');
+  const offline = status === 'connecting' || status === 'idle';
+  const offlineLabel = status === 'connecting' ? 'Connecting to your session…' : 'Session idle — waiting to reconnect.';
   const approveRequest = (requestId: string, optionId: string, isDeny: boolean): void => {
     vibrate(isDeny ? [8, 40, 8] : 10);
     onApprove(requestId, optionId);
@@ -285,6 +287,8 @@ export function SessionScreen({
           items={timeline.items}
           history={timeline.history}
           streaming={status === 'live'}
+          offline={offline}
+          offlineLabel={offlineLabel}
           onRetry={onRetry}
         />
       </main>
