@@ -260,14 +260,17 @@ export const historyRequest = (before = null, limit, since = null) => ({
 });
 /**
  * Ext -> phone page of history. `items` are HistoryItem[] in ascending turn order.
- * `nextCursor` is the turn_index to pass as the next `before` (or null when there is
- * nothing older); `hasMore` mirrors that as a convenience.
+ * `nextCursor` is the turn_index to continue the SAME direction (next `before` for backward,
+ * next `since` for forward), or null when nothing more remains; `hasMore` mirrors that.
+ * `since` echoes the request's forward cursor: when non-null the page is a FORWARD catch-up
+ * (append missed turns to the transcript tail); when null it's a latest/backward page (scrollback).
  */
-export const history = (items, nextCursor = null, hasMore = false) => ({
+export const history = (items, nextCursor = null, hasMore = false, since = null) => ({
   kind: KIND.HISTORY,
   items,
   nextCursor,
   hasMore,
+  since,
   ts: now(),
 });
 

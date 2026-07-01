@@ -447,7 +447,7 @@ async function serveHistory(sessionId, msg, sendSafe, logger) {
     const before = Number.isFinite(msg?.before) ? msg.before : null;
     const since = Number.isFinite(msg?.since) ? msg.since : null;
     const page = await readHistory(sessionId, { before, since, limit: msg?.limit });
-    await sendSafe(history(page.items, page.nextCursor, page.hasMore));
+    await sendSafe(history(page.items, page.nextCursor, page.hasMore, since));
   } catch (err) {
     logger?.(`Helm history request failed: ${err?.message ?? err}`, { level: "warning" });
     await sendSafe(history([], null, false));

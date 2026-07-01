@@ -93,10 +93,17 @@ export interface TimelineState {
   historyHasMore: boolean;
   /** True while a history page request is in flight (drives the "Loading…" affordance). */
   historyLoading: boolean;
+  /** FORWARD cursor: the highest committed turn_index this phone has seen (via heartbeat, state
+   *  snapshot, or any history page). Persisted so a refresh/resume can ask the extension for only
+   *  the turns that landed while it was away (`historyRequest({ since })`). Null until first known. */
+  latestTurnIndex: number | null;
 }
 
 const MAX_ITEMS = 240;
 const MAX_HISTORY = 500;
+// How many trailing live items a forward catch-up checks for an exact-text overlap with its oldest
+// turns — enough to cover the ~1–2 turns that could have been seen live in the last beat before a drop.
+const CATCHUP_OVERLAP_SCAN = 8;
 const DEFAULT_MODE = MODES[0] as SessionMode;
 
 export function emptyTimeline(): TimelineState {
@@ -116,6 +123,7 @@ export function emptyTimeline(): TimelineState {
     historyCursor: null,
     historyHasMore: false,
     historyLoading: false,
+    latestTurnIndex: null,
   };
 }
 
@@ -187,8 +195,13 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
       return { ...state, busy: (message as ActivityMessage).busy };
     case KIND.USER_MESSAGE:
       return appendUserEcho(state, message as UserMessageEcho);
-    case KIND.HISTORY:
-      return mergeHistoryPage(state, message as HistoryMessage);
+    case KIND.HISTORY: {
+      // A FORWARD catch-up page (its `since` cursor is echoed back) carries the turns that landed
+      // while we were away — append them to the transcript tail. A latest/backward page (no `since`)
+      // is scrollback — merge it into `history[]` ABOVE the transcript.
+      const page = message as HistoryMessage;
+      return page.since != null ? applyForwardCatchup(state, page) : mergeHistoryPage(state, page);
+    }
     case KIND.STATE_SNAPSHOT:
       return applyStateSnapshot(state, message as StateSnapshot);
     case KIND.APPROVAL_REQUEST: {
@@ -246,7 +259,14 @@ export function reduceTimeline(state: TimelineState, message: InnerMessage): Tim
       // Re-assert busy only when the extension actually knows it (boolean); a null/absent value
       // means "unknown" and must not clobber the live busy driven by assistant.message_start/idle.
       const busy = typeof beat.busy === 'boolean' ? beat.busy : state.busy;
-      return { ...state, busy, lastHeartbeat: Date.now(), sessionEnded: false };
+      return {
+        ...state,
+        busy,
+        lastHeartbeat: Date.now(),
+        sessionEnded: false,
+        // Advance the forward cursor so a later refresh/resume catches up from the right point.
+        latestTurnIndex: maxCursor(state.latestTurnIndex, beat.latestTurnIndex),
+      };
     }
     case KIND.MODE:
       return { ...state, mode: (message as ModeChange).mode };
@@ -419,7 +439,8 @@ function appendUserEcho(state: TimelineState, message: UserMessageEcho): Timelin
 
 /** Merge a backfilled history page (ascending, deduped) and advance the cursor. */
 function mergeHistoryPage(state: TimelineState, message: HistoryMessage): TimelineState {
-  const merged = mergeHistory(state.history, message.items ?? []);
+  const items = message.items ?? [];
+  const merged = mergeHistory(state.history, items);
   const history = merged.length > MAX_HISTORY ? merged.slice(merged.length - MAX_HISTORY) : merged;
   return {
     ...state,
@@ -427,7 +448,93 @@ function mergeHistoryPage(state: TimelineState, message: HistoryMessage): Timeli
     historyCursor: message.nextCursor ?? null,
     historyHasMore: Boolean(message.hasMore),
     historyLoading: false,
+    // The first-join latest page seeds the forward cursor so a later resume knows where "now" is.
+    latestTurnIndex: maxCursor(state.latestTurnIndex, highestTurnIndex(items)),
   };
+}
+
+/**
+ * Apply a FORWARD catch-up page — the extension's answer to `historyRequest({ since })`, i.e. the
+ * turns that committed while this phone was away/offline. Unlike backward scrollback (which fills
+ * `history[]` ABOVE the transcript), these turns are NEWER than everything shown, so they're
+ * converted to normal user/assistant items and appended at the BOTTOM, exactly where the live stream
+ * resumes. A "N new while you were away" divider marks the boundary. Idempotent: re-applying the same
+ * page is a no-op (dedup by a stable `turn-<i>-<role>` id), and a turn already seen live is dropped
+ * by an exact (role,text) match so it never double-renders (live items carry no turn_index).
+ */
+function applyForwardCatchup(state: TimelineState, message: HistoryMessage): TimelineState {
+  const incoming = message.items ?? [];
+  const cursor = maxCursor(state.latestTurnIndex, highestTurnIndex(incoming));
+  if (incoming.length === 0) return { ...state, latestTurnIndex: cursor };
+
+  // A catch-up that continues a large multi-page gap appends right after earlier catch-up turns;
+  // the very first page of a burst instead lands on the live tail, which is the ONLY place a turn
+  // could have been seen live already (committed + streamed within the last beat before the drop).
+  const lastId = state.items.length ? state.items[state.items.length - 1].id : '';
+  const continuing = lastId.startsWith('turn-') || lastId.startsWith('catchup-');
+  const existingIds = new Set(state.items.map((i) => i.id));
+  // Overlap guard (first page only): drop a turn whose text exactly matches a recent LIVE bubble so
+  // it never double-renders. Scoped to the tail — matching against the whole transcript would wrongly
+  // swallow a genuinely new short turn ("yes"/"ok") that repeats an old one.
+  const liveTail = continuing
+    ? new Set<string>()
+    : new Set(
+        state.items
+          .slice(-CATCHUP_OVERLAP_SCAN)
+          .filter((i): i is UserItem | AssistantItem => i.kind === 'user' || i.kind === 'assistant')
+          .map((i) => `${i.kind}\u0000${i.text}`),
+      );
+  const additions: TimelineItem[] = [];
+  const turns = new Set<number>();
+  for (const h of incoming) {
+    const id = `turn-${h.turnIndex}-${h.role}`;
+    if (existingIds.has(id) || liveTail.has(`${h.role}\u0000${h.text}`)) continue;
+    additions.push(
+      h.role === 'user'
+        ? { kind: 'user', id, text: h.text, ts: h.ts }
+        : { kind: 'assistant', id, text: h.text, ts: h.ts },
+    );
+    turns.add(h.turnIndex);
+  }
+  if (additions.length === 0) return { ...state, latestTurnIndex: cursor };
+
+  // One divider per catch-up burst: skip it on continuation pages so a multi-page fill shows a
+  // single boundary marker instead of one per page.
+  const appended = continuing ? additions : [catchupDivider(cursor, turns.size, additions[0].ts), ...additions];
+  return {
+    ...state,
+    items: cap([...state.items, ...appended]),
+    latestTurnIndex: cursor,
+  };
+}
+
+/** The "N new while you were away" boundary marker inserted before a forward catch-up batch. */
+function catchupDivider(cursor: number | null, turnCount: number, ts: number): NoticeItem {
+  return {
+    kind: 'notice',
+    id: `catchup-${cursor}-${turnCount}`,
+    level: 'info',
+    text: `${turnCount} new while you were away`,
+    ts,
+  };
+}
+
+/** The larger of two forward cursors, treating null/undefined/non-finite as "unknown" (-∞). */
+function maxCursor(a: number | null, b: number | null | undefined): number | null {
+  const av = Number.isFinite(a) ? (a as number) : null;
+  const bv = Number.isFinite(b) ? (b as number) : null;
+  if (av == null) return bv;
+  if (bv == null) return av;
+  return Math.max(av, bv);
+}
+
+/** The highest turn_index in a page of history items, or null when the page is empty. */
+function highestTurnIndex(items: HistoryItem[]): number | null {
+  let max: number | null = null;
+  for (const it of items) {
+    if (Number.isFinite(it.turnIndex) && (max == null || it.turnIndex > max)) max = it.turnIndex;
+  }
+  return max;
 }
 
 /**
@@ -447,6 +554,8 @@ function applyStateSnapshot(state: TimelineState, snap: StateSnapshot): Timeline
     elicitations: mergePendingById(state.elicitations, snap.elicitations ?? []),
     lastHeartbeat: Date.now(),
     sessionEnded: false,
+    // The snapshot reports the store's highest committed turn — seed/advance the forward cursor.
+    latestTurnIndex: maxCursor(state.latestTurnIndex, snap.latestTurnIndex),
   };
 }
 
@@ -472,6 +581,8 @@ export interface PersistedTimeline {
   mode: SessionMode;
   title: string | null;
   cwd: string | null;
+  /** Forward cursor, persisted so a hard refresh can catch up from the last-seen turn. */
+  latestTurnIndex: number | null;
 }
 
 /** Extract the durable subset of a timeline for local persistence. */
@@ -484,6 +595,7 @@ export function toPersisted(state: TimelineState): PersistedTimeline {
     mode: state.mode,
     title: state.title,
     cwd: state.cwd,
+    latestTurnIndex: state.latestTurnIndex,
   };
 }
 
@@ -504,5 +616,6 @@ export function restoreTimeline(persisted: PersistedTimeline | null | undefined)
     mode: persisted.mode ?? base.mode,
     title: persisted.title ?? null,
     cwd: persisted.cwd ?? null,
+    latestTurnIndex: persisted.latestTurnIndex ?? null,
   };
 }

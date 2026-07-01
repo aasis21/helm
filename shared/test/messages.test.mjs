@@ -117,10 +117,20 @@ test("history factory carries items + pagination cursor", () => {
   assert.deepEqual(h.items, items);
   assert.equal(h.nextCursor, 7);
   assert.equal(h.hasMore, true);
+  // Latest/backward pages leave `since` null so the phone routes them to scrollback.
+  assert.equal(h.since, null);
 
   const empty = history([]);
   assert.equal(empty.nextCursor, null);
   assert.equal(empty.hasMore, false);
+  assert.equal(empty.since, null);
+});
+
+test("history echoes the forward `since` cursor so a catch-up page is distinguishable", () => {
+  const items = [{ turnIndex: 13, role: "assistant", text: "done", ts: 2 }];
+  const fwd = history(items, 13, false, 12);
+  assert.equal(fwd.since, 12);
+  assert.deepEqual(fwd.items, items);
 });
 
 test("activity factory coerces busy to a boolean and routes to STREAM", () => {

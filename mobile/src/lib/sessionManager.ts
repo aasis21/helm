@@ -1,5 +1,5 @@
 import { KIND, approvalDecision, elicitationResponse, historyRequest, interrupt, modeChange, prompt, stateRequest, HISTORY_PAGE_DEFAULT } from '@aasis21/helm-shared';
-import type { InnerMessage, SessionMode } from '@aasis21/helm-shared';
+import type { History as HistoryMessage, InnerMessage, SessionMode } from '@aasis21/helm-shared';
 import { connectSession, pairSession } from './helmClient';
 import type { HelmClient } from './helmClient';
 import {
@@ -62,6 +62,8 @@ interface Runtime {
   ephemeral: boolean;
   /** True until the one-time pre-join history backfill has been requested. */
   firstJoin: boolean;
+  /** Forward catch-up pages fetched since the last (re)connect — bounds a huge gap (see D5). */
+  catchupPages?: number;
   unread?: boolean;
   error?: string;
   unsubscribe?: () => void;
@@ -76,6 +78,9 @@ const IDLE_AFTER_MS = 20_000;
 const OFFLINE_AFTER_MS = 45_000;
 // Coalesce transcript writes so a burst of stream deltas doesn't hammer storage.
 const PERSIST_THROTTLE_MS = 800;
+// Cap the forward catch-up after a long absence so one reconnect can't flood the transcript with a
+// huge gap in a single burst; the older middle stays reachable via "Load earlier" scrollback.
+const MAX_CATCHUP_PAGES = 4;
 
 function basename(path: string | null): string | null {
   if (!path) return null;
@@ -229,7 +234,12 @@ class SessionManager {
     // Ask for the current session state (busy/mode + any pending prompts) so a fresh, mid-turn,
     // or reconnecting join reflects the truth immediately instead of waiting for the next event.
     this.requestState(channelId);
+    // `maybeRequestFirstHistory` clears `firstJoin` as a side effect, so capture it first: a first
+    // join backfills the latest page (below); a reconnect/refresh/resume instead catches up on the
+    // turns that landed while we were away.
+    const wasFirstJoin = runtime.firstJoin;
     this.maybeRequestFirstHistory(channelId, client);
+    if (!wasFirstJoin) this.maybeRequestCatchup(channelId, client);
   }
 
   /**
@@ -301,12 +311,66 @@ class SessionManager {
     });
   }
 
+  /**
+   * FORWARD catch-up: on every reconnect/refresh/resume (i.e. NOT the one-time first join), pull the
+   * turns that committed while this phone was away, starting just after the highest turn we've seen.
+   * The extension answers with a forward `control.history` page that the reducer appends to the
+   * transcript tail behind a "N new while you were away" divider — so a phone that went offline,
+   * backgrounded, or hard-refreshed comes back with no missing turns. No cursor yet (never caught a
+   * beat or snapshot) => nothing to catch up on; the state snapshot + live events cover it.
+   */
+  private maybeRequestCatchup(channelId: string, client: HelmClient): void {
+    const runtime = this.runtimes.get(channelId);
+    if (!runtime || runtime.ephemeral) return;
+    const since = runtime.timeline.latestTurnIndex;
+    if (since == null) return;
+    runtime.catchupPages = 0;
+    void client.send(historyRequest(null, HISTORY_PAGE_DEFAULT, since)).catch(() => {
+      // A failed catch-up must never break the connection; forward live events still flow.
+    });
+  }
+
+  /**
+   * Continue a bounded forward catch-up: if a catch-up page reports more missed turns, pull the next
+   * one (up to MAX_CATCHUP_PAGES) so a moderate absence fills in completely and in order. A very
+   * large gap stops at the cap with a notice, leaving the older middle to "Load earlier" scrollback,
+   * so one reconnect can't flood the transcript in a single burst.
+   */
+  private maybeContinueCatchup(channelId: string, page: HistoryMessage): void {
+    const runtime = this.runtimes.get(channelId);
+    if (!runtime || runtime.ephemeral || !runtime.client) return;
+    if (!page.hasMore || page.nextCursor == null) return;
+    const loaded = (runtime.catchupPages ?? 0) + 1;
+    runtime.catchupPages = loaded;
+    if (loaded >= MAX_CATCHUP_PAGES) {
+      runtime.timeline = appendNotice(
+        runtime.timeline,
+        'info',
+        'A lot happened while you were away — scroll up to load the rest.',
+        Date.now(),
+      );
+      this.schedulePersist(channelId);
+      this.emit();
+      return;
+    }
+    void runtime.client
+      .send(historyRequest(null, HISTORY_PAGE_DEFAULT, page.nextCursor))
+      .catch(() => {
+        // Best-effort: a dropped continuation just leaves the remaining gap to manual scrollback.
+      });
+  }
+
   private onMessage(channelId: string, message: InnerMessage): void {
     const runtime = this.runtimes.get(channelId);
     if (!runtime) return;
     runtime.timeline = reduceTimeline(runtime.timeline, message);
     if (isUnreadActivity(message)) {
       runtime.unread = channelId !== this.activeId;
+    }
+
+    // A forward catch-up page may report more missed turns — page through the gap (bounded).
+    if (message.kind === KIND.HISTORY && (message as HistoryMessage).since != null) {
+      this.maybeContinueCatchup(channelId, message as HistoryMessage);
     }
 
     if (message.kind === KIND.SESSION_END) {
@@ -676,7 +740,11 @@ class SessionManager {
       if (revive && runtime.status !== 'ended') {
         void this.reconnect(channelId);
       } else {
+        // Healthy link: refresh the authoritative state and catch up on any turns that slipped in
+        // while backgrounded. Catch-up reads the pre-resume cursor, so a current session just gets an
+        // empty forward page (no-op); it only backfills when something was actually missed.
         this.requestState(channelId);
+        if (runtime.client) this.maybeRequestCatchup(channelId, runtime.client);
       }
     }
   };

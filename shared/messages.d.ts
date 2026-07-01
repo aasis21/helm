@@ -206,6 +206,8 @@ export interface History extends BaseMessage {
   items: HistoryItem[];
   nextCursor: number | null;
   hasMore: boolean;
+  /** Echo of the request's forward cursor: non-null => FORWARD catch-up page; null => latest/backward. */
+  since?: number | null;
 }
 /** Phone -> ext: request the current session state on (re)connect / refresh / resume. */
 export interface StateRequest extends BaseMessage {
@@ -317,7 +319,8 @@ export function historyRequest(
 export function history(
   items: HistoryItem[],
   nextCursor?: number | null,
-  hasMore?: boolean
+  hasMore?: boolean,
+  since?: number | null
 ): History;
 export function stateRequest(): StateRequest;
 export function stateSnapshot(snapshot?: {

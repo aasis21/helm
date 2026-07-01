@@ -187,6 +187,19 @@ test("answers a HISTORY_REQUEST with a control.history message", async () => {
     assert.deepEqual(hist.items, []);
     assert.equal(hist.nextCursor, null);
     assert.equal(hist.hasMore, false);
+    // A latest/backward request carries no forward cursor to echo.
+    assert.equal(hist.since, null);
+  });
+});
+
+test("echoes the forward `since` cursor on a catch-up HISTORY_REQUEST", async () => {
+  await withRelay(async ({ channel }) => {
+    channel.emit(EVENTS.CONTROL, { kind: KIND.HISTORY_REQUEST, before: null, since: 12, limit: 50 });
+    await flush();
+    const hist = channel.sent.find((m) => m.kind === KIND.HISTORY);
+    assert.ok(hist, "expected a control.history response");
+    // The echo lets the phone route this page to forward catch-up (append) vs scrollback.
+    assert.equal(hist.since, 12);
   });
 });
 
