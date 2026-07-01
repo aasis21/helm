@@ -599,9 +599,15 @@ class SessionManager {
         if (beat && now - beat > OFFLINE_AFTER_MS) {
           runtime.status = 'error';
           runtime.error = 'Connection lost — reconnect to resume.';
+          // A dead link can't be actively working; drop a stuck Stop control. Real busy is
+          // re-derived from the state snapshot / live events once we reconnect.
+          if (runtime.timeline.busy) runtime.timeline = { ...runtime.timeline, busy: false };
           changed = true;
         } else if (runtime.status === 'live' && beat && now - beat > IDLE_AFTER_MS) {
           runtime.status = 'idle';
+          // The extension heartbeats on a timer independent of agent work, so a beat this stale
+          // means the transport — not a long turn — went quiet; unstick a lingering "Working…".
+          if (runtime.timeline.busy) runtime.timeline = { ...runtime.timeline, busy: false };
           changed = true;
         }
       }
