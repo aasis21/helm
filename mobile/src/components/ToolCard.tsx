@@ -32,18 +32,35 @@ function label(name: string): string {
   return TOOL_LABELS[name] ?? titleCase(name);
 }
 
-/** One-line, human-readable summary of the most useful argument. */
-function summarize(args: unknown): string {
-  if (!args || typeof args !== 'object') return '';
+interface ArgSummary {
+  primary: string;
+  isPath: boolean;
+}
+
+const PATH_KEYS = new Set(['path', 'file']);
+
+/** One-line summary of the most useful argument, flagging file-path args for basename styling. */
+function describeArg(args: unknown): ArgSummary {
+  if (!args || typeof args !== 'object') return { primary: '', isPath: false };
   const record = args as Record<string, unknown>;
   for (const key of ['command', 'path', 'file', 'pattern', 'query', 'url', 'description']) {
     const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'string' && value.trim()) {
+      return { primary: value.trim(), isPath: PATH_KEYS.has(key) };
+    }
   }
-  return Object.entries(record)
+  const primary = Object.entries(record)
     .slice(0, 3)
     .map(([key, value]) => `${key}: ${summarizeValue(value)}`)
     .join(', ');
+  return { primary, isPath: false };
+}
+
+/** Split a path into a dimmable directory prefix and its highlighted basename. */
+function splitPath(value: string): { dir: string; base: string } {
+  const idx = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+  if (idx === -1) return { dir: '', base: value };
+  return { dir: value.slice(0, idx + 1), base: value.slice(idx + 1) };
 }
 
 function summarizeValue(value: unknown): string {
@@ -83,7 +100,9 @@ export function ToolCard({ item }: ToolCardProps): JSX.Element {
   const [fullResult, setFullResult] = useState(false);
   const copiedTimer = useRef<number | null>(null);
   const icon = item.status === 'running' ? '↻' : item.status === 'success' ? '✓' : '✕';
-  const argLine = summarize(item.args);
+  const arg = describeArg(item.args);
+  const argLine = arg.primary;
+  const argPath = arg.isPath ? splitPath(argLine) : null;
   const hasDetail = !!argLine || !!item.resultPreview;
   const argsText = formatArgs(item.args);
   const resultText = item.resultPreview ?? '';
@@ -116,7 +135,18 @@ export function ToolCard({ item }: ToolCardProps): JSX.Element {
       >
         <span className="tc-icon" aria-hidden="true">{icon}</span>
         <span className="tc-name">{label(item.name)}</span>
-        {argLine ? <span className="tc-args">{argLine}</span> : <span className="tc-args" />}
+        {argLine ? (
+          argPath ? (
+            <span className="tc-args is-path">
+              {argPath.dir ? <span className="tc-dir">{argPath.dir}</span> : null}
+              <span className="tc-base">{argPath.base}</span>
+            </span>
+          ) : (
+            <span className="tc-args">{argLine}</span>
+          )
+        ) : (
+          <span className="tc-args" />
+        )}
         <span className="tc-time">{elapsed(item)}</span>
         {hasDetail ? <span className="tc-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span> : null}
       </button>

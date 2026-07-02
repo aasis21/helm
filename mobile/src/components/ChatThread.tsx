@@ -152,12 +152,8 @@ export function ChatThread({ items, history = [], streaming = false, busy = fals
         index += 1;
       }
 
-      const firstTool = run[0];
-      if (run.length >= 3 && firstTool) {
-        units.push({ kind: 'tool-run', id: `tool-run-${firstTool.id}-${run.length}`, items: run, startIndex });
-      } else {
-        run.forEach((tool, offset) => units.push({ kind: 'item', item: tool, index: startIndex + offset }));
-      }
+      // Tool-call grouping is disabled for now — render every tool as its own compact card.
+      run.forEach((tool, offset) => units.push({ kind: 'item', item: tool, index: startIndex + offset }));
     }
 
     return units;
